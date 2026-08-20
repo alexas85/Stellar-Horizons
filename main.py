@@ -44,9 +44,9 @@ def main():
 
         # --- Управление ---
         keys = pygame.key.get_pressed()
-        if keys[pygame.K_q]:
+        if keys[pygame.K_a]:
             player.rotate(-1)
-        if keys[pygame.K_e]:
+        if keys[pygame.K_d]:
             player.rotate(1)
         if keys[pygame.K_w]:
             player.accelerate()
