@@ -1,27 +1,23 @@
 import pygame
 import sys
-from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT, SHIP_ACCELERATION
+from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
 from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites
 from game_objects.player import PlayerShip
+from world.generator import WorldGenerator
 
-
-# Раскомментируй следующую строку, только если генератор мира реально нужен и работает
-# from world.generator import WorldGenerator
 
 def main():
     pygame.init()
     screen = pygame.display.set_mode((CAMERA_WIDTH, CAMERA_HEIGHT))
-    pygame.display.set_caption('Stellar Horizons')
+    pygame.display.set_caption('Stellar Horizons - Asteroid Belt')
     clock = pygame.time.Clock()
 
     # 1. Загрузка ассетов
     backgrounds = get_backgrounds()
-
-    # Получаем спрайты корабля класса 4
-    # Ожидается: (idle_sprite, [anim1, anim2, anim3])
     idle_sprite, movement_sprites = get_ship_sprites(4)
 
-    # asteroid_sprites = get_asteroid_sprites() # Раскомментируй, если нужны астероиды
+    # Получаем словарь спрайтов астероидов (ключ: имя файла/типа, значение: Surface)
+    asteroid_sprites = get_asteroid_sprites()
 
     # 2. Создание объектов
     player = PlayerShip(
@@ -31,8 +27,10 @@ def main():
         movement_sprites=movement_sprites
     )
 
-    # generator = WorldGenerator() # Раскомментируй, если нужен генератор
+    # Инициализируем генератор мира
+    generator = WorldGenerator()
 
+    # Камера (хранит позицию в мире)
     camera = pygame.Rect(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT)
     running = True
 
@@ -44,14 +42,18 @@ def main():
 
         # --- Управление ---
         keys = pygame.key.get_pressed()
+
+        # Поворот (A - против часовой, D - по часовой)
         if keys[pygame.K_a]:
             player.rotate(-1)
         if keys[pygame.K_d]:
             player.rotate(1)
+
+        # Ускорение (W)
         if keys[pygame.K_w]:
             player.accelerate()
 
-        # --- Логика ---
+        # --- Логика игры ---
         player.update()
 
         # Движение камеры за игроком
@@ -59,52 +61,63 @@ def main():
         target_y = player.y - CAMERA_HEIGHT // 2
         camera.topleft = (target_x, target_y)
 
-        # Ограничение камеры границами мира
-        camera.clamp_ip(pygame.Rect(0, 0, ROOM_WIDTH, ROOM_HEIGHT))
+        # Ограничение камеры границами мира (чтобы не уходила в бесконечность)
+        world_rect = pygame.Rect(0, 0, ROOM_WIDTH, ROOM_HEIGHT)
+        camera.clamp_ip(world_rect)
+
+        # ОПРЕДЕЛЕНИЕ ТЕКУЩЕГО СЕКТОРА (КОМНАТЫ)
+        # Делим мировые координаты игрока на размер комнаты, чтобы понять, в какой ячейке мы находимся
+        room_x = int(player.x // ROOM_WIDTH)
+        room_y = int(player.y // ROOM_HEIGHT)
+
+        current_sector = generator.get_sector(room_x, room_y, asteroid_sprites)
 
         # --- Отрисовка ---
-        screen.fill((0, 0, 20))  # Цвет космоса
+        screen.fill((0, 0, 20))  # Цвет космоса (темно-синий)
 
-        # --- ИСПРАВЛЕННАЯ ОТРИСОВКА ФОНА ---
-        # Теперь код умеет работать и со списком, и со словарем (слоями)
+        # 1. Отрисовка фона (со слоями параллакса)
         if backgrounds:
             if isinstance(backgrounds, dict):
-                # Если это словарь слоев (например, {'far': img, 'near': img})
                 for layer_name, image in backgrounds.items():
-                    # Простая отрисовка слоя с учетом параллакса (опционально можно усложнить)
-                    # Для начала просто рисуем слой, сдвинутый на -camera.x, -camera.y
-                    # Можно добавить множитель скорости для параллакса, например: speed = 0.5 для дальних слоев
-                    offset_x = -int(camera.x * 0.5) if layer_name == 'far' else -camera.x
-                    offset_y = -int(camera.y * 0.5) if layer_name == 'far' else -camera.y
+                    speed = 0.5 if layer_name == 'far' else 1.0
+                    offset_x = -int(camera.x * speed)
+                    offset_y = -int(camera.y * speed)
 
-                    # Рисуем картинку несколько раз, чтобы закрыть весь экран при скролле
                     w, h = image.get_size()
+                    # Рисуем сетку тайлов, чтобы закрыть весь экран при скролле
                     for x in range(-1, 2):
                         for y in range(-1, 2):
                             screen.blit(image, (offset_x + x * w, offset_y + y * h))
 
             elif isinstance(backgrounds, list):
-                # Если это список слоев
                 for image in backgrounds:
                     w, h = image.get_size()
                     for x in range(-1, 2):
                         for y in range(-1, 2):
                             screen.blit(image, (-camera.x + x * w, -camera.y + y * h))
-
             else:
-                # Если это просто одна картинка (Surface)
                 w, h = backgrounds.get_size()
                 for x in range(-1, 2):
                     for y in range(-1, 2):
                         screen.blit(backgrounds, (-camera.x + x * w, -camera.y + y * h))
-        # ----------------------------------
 
-        # Отрисовка игрока
+        # 2. ОБНОВЛЕНИЕ И ОТРИСОВКА АСТЕРОИДОВ ТЕКУЩЕГО СЕКТОРА
+        # Если в секторе есть астероиды (обычное поле или пояс), обновляем их физику и рисуем
+        if current_sector.asteroids:
+            for asteroid in current_sector.asteroids:
+                asteroid.update()  # Двигаем по орбите и крутим сам астероид
+                asteroid.draw(screen, camera)
+
+        # 3. Отрисовка игрока
         player.draw(screen, camera.topleft)
 
-        # Отладочная информация
+        # 4. Отладочная информация
         font = pygame.font.SysFont('Arial', 16)
-        info_text = f"Pos: {int(player.x)}, {int(player.y)} | Angle: {int(player.angle)}"
+        info_text = (
+            f"Pos: {int(player.x)}, {int(player.y)} | "
+            f"Angle: {int(player.angle)} | "
+            f"Room: {room_x}, {room_y}"
+        )
         text_surf = font.render(info_text, True, (255, 255, 255))
         screen.blit(text_surf, (10, 10))
 
