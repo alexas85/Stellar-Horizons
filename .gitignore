@@ -1,5 +1,125 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff
+instance/
+.webassets-cache
+
+# Scrapy stuff
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582 (python -m pip install --user)
+__pypackages__/
+
+# Virtual environments (venv, venv-name, .venv, env, ENV)
 venv/
-/.idea
-*.png
-class_ships_3/
-class_ships_4/
+.venv/
+env/
+ENV/
+
+# IDE / editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Project-specific: скомпилированные/временные файлы игры
+*.exe
+*.dll
+*.bin
+temp/
+tmp/
+debug/
+release/
+
+# Локальные конфиги и секреты (не коммить токены, ключи, локальные настройки)
+.env
+.secrets.env
+config_local.py
+secrets.json
+
+# Графика/ассеты: если ты генерируешь превью/миниатюры — можно исключить
+thumbnails/
+previews/
+
+# Логи игры и временные файлы, создаваемые при запуске
+logs/
+*.log
+save_data/
+user_data/

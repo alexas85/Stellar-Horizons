@@ -1,50 +1,88 @@
+# world/sector.py
 import random
 import math
 from game_objects.asteroid import Asteroid
-from config import SIGMA, ROOM_WIDTH, ROOM_HEIGHT
+from config import ROOM_WIDTH, ROOM_HEIGHT
 
 
 class Sector:
     def __init__(self, x, y):
-        self.x = x
+        self.x = x  # Координаты комнаты в сетке (например, 1, 0)
         self.y = y
         self.asteroids = []
         self.is_generated = False
         self.belt = None
 
-    def generate_random_field(self, asteroid_sprites, counts):
-        """Обычная генерация (случайное распределение)."""
-        center_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
-        center_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
+    def generate_clustered_field(self, asteroid_sprites, total_count=50):
+        """Генерирует астероиды пучками (кластерами) в МИРОВЫХ координатах."""
+        self.asteroids = []
+        types = list(asteroid_sprites.keys())
 
-        for sprite_key, count in counts.items():
-            sprite = asteroid_sprites.get(sprite_key)
-            if not sprite:
-                continue
+        if not types:
+            return
 
-            for _ in range(count):
-                x = random.gauss(center_x, SIGMA)
-                y = random.gauss(center_y, SIGMA)
+        cluster_count = random.randint(6, 8)
 
-                x = max(0, min(ROOM_WIDTH, x))
-                y = max(0, min(ROOM_HEIGHT, y))
+        # ВАЖНО: Вычисляем мировой центр текущей комнаты
+        room_center_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
+        room_center_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
 
-                # Простая проверка на пересечение
+        for _ in range(cluster_count):
+            remaining = total_count - len(self.asteroids)
+            if remaining <= 0:
+                break
+
+            max_cluster_size = max(1, int(remaining * 0.4))
+            cluster_size = random.randint(1, max_cluster_size)
+
+            margin = 250
+            # ИСПРАВЛЕНИЕ: Генерируем центр кластера относительно МИРОВОГО центра комнаты
+            # Это гарантирует, что кластер будет внутри комнаты, но с правильными глобальными координатами
+            cluster_x = room_center_x + random.randint(-margin, margin)
+            cluster_y = room_center_y + random.randint(-margin, margin)
+
+            for _ in range(cluster_size):
+                radius = 350
+                angle = random.uniform(0, 2 * math.pi)
+                dist = random.uniform(0, radius)
+
+                # ax и ay теперь сразу МИРОВЫЕ координаты
+                ax = cluster_x + math.cos(angle) * dist
+                ay = cluster_y + math.sin(angle) * dist
+
+                # Проверка на коллизии с уже созданными в этом секторе астероидами
                 collision = False
                 for existing in self.asteroids:
-                    if math.hypot(x - existing.x, y - existing.y) < 64:
+                    if math.hypot(ax - existing.x, ay - existing.y) < 64:
                         collision = True
                         break
 
                 if not collision:
-                    angle = random.uniform(0, 2 * math.pi)
-                    rot_speed = random.uniform(-0.05, 0.05)
-                    self.asteroids.append(Asteroid(sprite, x, y, angle, rot_speed))
+                    ast_type = random.choice(types)
+                    sprite = asteroid_sprites.get(ast_type)
+
+                    if not sprite:
+                        continue
+
+                    rot_speed = random.uniform(-0.02, 0.02)
+
+                    new_asteroid = Asteroid(
+                        sprite=sprite,
+                        x=ax,
+                        y=ay,
+                        angle=random.uniform(0, 2 * math.pi),
+                        rotation_speed=rot_speed,
+                        orbit_center=None,
+                        orbit_radius=0,
+                        orbit_speed=0
+                    )
+                    self.asteroids.append(new_asteroid)
 
         self.is_generated = True
 
     def generate_belt(self, asteroid_sprites, inner_radius, outer_radius, counts):
         """Генерация пояса астероидов с орбитальным движением."""
+        # Центр пояса — мировой центр комнаты
         center_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
         center_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
 
@@ -55,32 +93,24 @@ class Sector:
                 continue
 
             for _ in range(count):
-                # Выбираем случайный радиус между внутренним и внешним
                 dist = random.uniform(inner_radius, outer_radius)
-
-                # Начальный угол на орбите
-                start_angle = random.uniform(0, 2 * math.pi)
-
-                # Скорость движения по орбите (чтобы астероиды не стояли стеной)
-                orbit_speed = random.uniform(0.005, 0.02)
-
-                # Направление движения (по часовой или против)
+                orbit_speed = random.uniform(0.001, 0.009)
                 if random.random() > 0.5:
                     orbit_speed = -orbit_speed
 
                 belt_asteroids.append(
                     Asteroid(
                         sprite=sprite,
-                        x=center_x,  # Начальная позиция будет пересчитана в update
+                        x=center_x,
                         y=center_y,
-                        angle=random.uniform(0, 2 * math.pi),  # Вращение текстуры
-                        rotation_speed=random.uniform(-0.05, 0.05),  # Кувырок
+                        angle=random.uniform(0, 2 * math.pi),
+                        rotation_speed=random.uniform(-0.05, 0.05),
                         orbit_center=(center_x, center_y),
                         orbit_radius=dist,
                         orbit_speed=orbit_speed
                     )
                 )
 
+        self.asteroids = belt_asteroids
         self.belt = belt_asteroids
-        self.asteroids = belt_asteroids  # В этом секторе астероиды - это и есть пояс
         self.is_generated = True

@@ -1,6 +1,6 @@
-# sprites.py
 import os
 import pygame
+import random
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
@@ -16,15 +16,25 @@ def load_image(path, convert_alpha=True):
         return img.convert()
     except FileNotFoundError:
         print(f"⚠️ Файл не найден: {path}. Используем заглушку.")
-        # Создаем цветной квадрат 64x64 вместо картинки
+
+        # Создаем заглушку в зависимости от типа
         surf = pygame.Surface((64, 64))
         if convert_alpha:
             surf.set_colorkey((0, 0, 0))
-        # Разные цвета для разных типов объектов для наглядности
-        if "fog" in path:
-            surf.fill((50, 50, 80))
-        elif "stars" in path:
-            surf.fill((20, 20, 40))
+
+        if "stars" in path:
+            # Заглушка для звёзд: чёрный фон + случайные белые точки
+            surf.fill((0, 0, 20))  # Почти чёрный
+            for _ in range(10):
+                x = random.randint(0, 63)
+                y = random.randint(0, 63)
+                size = random.choice([1, 2])
+                pygame.draw.circle(surf, (255, 255, 255), (x, y), size)
+            return surf
+        elif "fog" in path:
+            # Если вдруг где-то попросят туман, сделаем прозрачный
+            surf.fill((0, 0, 0, 0))
+            return surf.convert_alpha()
         elif "ship" in path or "trport" in path:
             surf.fill((255, 0, 0))  # Красный корабль
         elif "ast" in path:
@@ -35,9 +45,11 @@ def load_image(path, convert_alpha=True):
 
 
 def get_backgrounds():
-    """Возвращает загруженные фоновые изображения."""
+    """
+    Возвращает единый фон для всех комнат: только звёзды.
+    Туман убран по требованию.
+    """
     return {
-        "fog": load_image("backgrounds/fog/bg_98_98_fog.png"),
         "stars": load_image("backgrounds/starfields/stars.png"),
     }
 

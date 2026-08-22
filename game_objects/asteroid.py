@@ -1,3 +1,4 @@
+# game_objects/asteroid.py
 import math
 import pygame
 
@@ -11,17 +12,20 @@ class Asteroid:
         self.angle = angle
         self.rotation_speed = rotation_speed
 
-        # Параметры орбиты (для пояса астероидов)
-        self.orbit_center = orbit_center  # (cx, cy)
+        # Параметры орбиты
+        self.orbit_center = orbit_center
         self.orbit_radius = orbit_radius
-        self.orbit_speed = orbit_speed  # скорость движения по орбите (в радианах за кадр)
-        self.current_orbit_angle = angle  # текущий угол на орбите
+        self.orbit_speed = orbit_speed
+        self.current_orbit_angle = angle
+
+        # Храним оригинальный размер спрайта для корректного центрирования
+        self.original_rect = sprite.get_rect()
 
     def update(self):
-        # 1. Вращение самого астероида (кувыркание)
+        # 1. Вращение самого астероида
         self.angle += self.rotation_speed
 
-        # 2. Движение по орбите (если параметры заданы)
+        # 2. Движение по орбите
         if self.orbit_center and self.orbit_radius > 0:
             self.current_orbit_angle += self.orbit_speed
 
@@ -30,10 +34,28 @@ class Asteroid:
             self.y = cy + math.sin(self.current_orbit_angle) * self.orbit_radius
 
     def draw(self, screen, camera):
-        rotated_sprite = pygame.transform.rotate(self.sprite, math.degrees(self.angle))
-        rect = rotated_sprite.get_rect(center=(self.x - camera.left, self.y - camera.top))
-        screen.blit(rotated_sprite, rect.topleft)
+        # 1. Переводим мировые координаты в экранные
+        screen_x = self.x - camera.x
+        screen_y = self.y - camera.y
+
+        # 2. Поворачиваем спрайт
+        angle_deg = math.degrees(self.angle)
+        rotated_image = pygame.transform.rotate(self.sprite, angle_deg)
+
+        # 3. Получаем rect повернутого изображения и центрируем его
+        new_rect = rotated_image.get_rect(center=(screen_x, screen_y))
+
+        # 4. ПРОВЕРКА ВИДИМОСТИ
+        # Если весь прямоугольник находится за пределами экрана — не рисуем
+        if (new_rect.right < 0 or new_rect.left > camera.width or
+                new_rect.bottom < 0 or new_rect.top > camera.height):
+            return
+
+        screen.blit(rotated_image, new_rect.topleft)
 
     def get_rect(self):
-        w, h = self.sprite.get_size()
-        return pygame.Rect(self.x - w / 2, self.y - h / 2, w, h)
+        """Возвращает прямоугольник для коллизий в мировых координатах."""
+        # Для коллизий лучше использовать оригинальный размер, смещенный на мировые координаты
+        rect = self.original_rect.copy()
+        rect.center = (self.x, self.y)
+        return rect
