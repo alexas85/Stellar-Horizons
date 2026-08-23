@@ -108,23 +108,36 @@ def main():
         all_objects = []
 
         if current_sector:
-            # Добавляем астероиды
             if hasattr(current_sector, 'asteroids') and current_sector.asteroids:
                 all_objects.extend(current_sector.asteroids)
-
-            # Добавляем другие объекты (корабли, станции)
             if hasattr(current_sector, 'objects') and current_sector.objects:
                 all_objects.extend(current_sector.objects)
+
+        HIGHLIGHT_RADIUS_SQ = 128 ** 2  # Квадрат радиуса подсветки
 
         for obj in all_objects:
             if isinstance(obj, list):
                 continue
 
+            # Обновляем объект
             if hasattr(obj, 'update'):
                 obj.update()
 
+            # Проверка дистанции (только если у объекта есть координаты)
+            show_highlight = False
+            if hasattr(obj, 'x') and hasattr(obj, 'y'):
+                dist_sq = (obj.x - player.x) ** 2 + (obj.y - player.y) ** 2
+                if dist_sq <= HIGHLIGHT_RADIUS_SQ:
+                    show_highlight = True
+
+            # ОТРИСОВКА С ПРОВЕРКОЙ ТИПА
             if hasattr(obj, 'draw'):
-                obj.draw(screen, camera)
+                # Если это StaticShip (или другой объект с поддержкой подсветки) — передаем флаг
+                if hasattr(obj, '__class__') and obj.__class__.__name__ == 'StaticShip':
+                    obj.draw(screen, camera, show_highlight=show_highlight)
+                else:
+                    # Для астероидов и других объектов вызываем draw БЕЗ аргумента show_highlight
+                    obj.draw(screen, camera)
         # -------------------------------------------------------------
 
         # Игрок
