@@ -20,13 +20,23 @@ def main():
 
     # --- ЗАГРУЗКА СПРАЙТА КОРАБЛЯ-ОБЛОМКА ---
     wreck_path = "assets/ships/class_3/ship_destroyer_destroyer-01_128px_idle.png"
+    wreck_sprite = None
     try:
         wreck_sprite = pygame.image.load(wreck_path).convert_alpha()
         print(f"[SUCCESS] Спрайт корабля загружен: {wreck_path}")
     except FileNotFoundError:
         print(f"[ERROR] Не удалось найти спрайт корабля по пути: {wreck_path}")
         print("Корабль не появится в комнате (1, 0). Проверьте путь к файлу.")
-        wreck_sprite = None
+
+    # --- ЗАГРУЗКА СПРАЙТА ПЛАНЕТЫ ---
+    planet_path = "assets/planets/habitable/planet_lariona_512px.png"
+    planet_sprite = None
+    try:
+        planet_sprite = pygame.image.load(planet_path).convert_alpha()
+        print(f"[SUCCESS] Спрайт планеты загружен: {planet_path}")
+    except FileNotFoundError:
+        print(f"[ERROR] Не удалось найти спрайт планеты: {planet_path}")
+        print("Планета не появится в комнате (1, 0). Проверьте путь к файлу.")
     # ----------------------------------------
 
     # 2. Создание объектов
@@ -82,12 +92,9 @@ def main():
             should_preload = True
 
         if should_preload:
-            # Передаем wreck_sprite в генератор, чтобы он мог создать корабль при генерации соседей
-            generator.preload_neighbors(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite)
+            generator.preload_neighbors(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite, planet_sprite=planet_sprite)
 
-        # Получаем текущий сектор
-        # Также передаем wreck_sprite сюда, на случай если текущая комната еще не сгенерирована
-        current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite)
+        current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite, planet_sprite=planet_sprite)
 
         # --- Отрисовка ---
         screen.fill((0, 0, 20))

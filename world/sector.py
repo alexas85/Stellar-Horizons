@@ -3,29 +3,28 @@ import random
 import math
 from game_objects.asteroid import Asteroid
 from game_objects.static_ship import StaticShip
+from game_objects.static_planet import StaticPlanet
 from config import ROOM_WIDTH, ROOM_HEIGHT
-
 
 class Sector:
     def __init__(self, x, y):
         self.x = x
         self.y = y
         self.asteroids = []
-        self.objects = []  # Список для статичных объектов (корабли, станции)
+        self.objects = []
         self.is_generated = False
         self.belt = None
 
-    def generate_clustered_field(self, asteroid_sprites, total_count=50, wreck_sprite=None):
-        """Генерирует астероиды пучками. wreck_sprite - спрайт корабля-обломка."""
+    def generate_clustered_field(self, asteroid_sprites, total_count=50, wreck_sprite=None, planet_sprite=None):
         self.asteroids = []
-        self.objects = []  # Очищаем список объектов при каждой генерации
+        self.objects = []
         types = list(asteroid_sprites.keys())
 
         if not types:
             return
 
+        # --- Генерация астероидов (без изменений) ---
         cluster_count = random.randint(6, 8)
-
         room_center_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
         room_center_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
 
@@ -58,78 +57,45 @@ class Sector:
                 if not collision:
                     ast_type = random.choice(types)
                     sprite = asteroid_sprites.get(ast_type)
-
                     if not sprite:
                         continue
 
                     rot_speed = random.uniform(-0.02, 0.02)
-
                     new_asteroid = Asteroid(
                         sprite=sprite,
-                        x=ax,
-                        y=ay,
+                        x=ax, y=ay,
                         angle=random.uniform(0, 2 * math.pi),
                         rotation_speed=rot_speed,
-                        orbit_center=None,
-                        orbit_radius=0,
-                        orbit_speed=0
+                        orbit_center=None, orbit_radius=0, orbit_speed=0
                     )
                     self.asteroids.append(new_asteroid)
 
-        # -------------------------------------------------------------
-        # ЛОГИКА РАЗМЕЩЕНИЯ КОРАБЛЯ-ОБЛОМКА
-        # -------------------------------------------------------------
+        # --- Размещение корабля-обломка (оставляем как было для (1, 0)) ---
         if wreck_sprite and self.x == 1 and self.y == 0:
-            # =========================================================
-            # ВАРИАНТ 1: ФИКСИРОВАННАЯ ПОЗИЦИЯ (АКТИВНЫЙ КОД)
-            # Корабль в верхнем левом углу, отступ 400px от краев комнаты
-            # =========================================================
             offset_from_edge = 400
-
-            # Мировые координаты X: начало комнаты + отступ
             fixed_x = (self.x * ROOM_WIDTH) + offset_from_edge
-
-            # Мировые координаты Y: начало комнаты + отступ
             fixed_y = (self.y * ROOM_HEIGHT) + offset_from_edge
-
-            fixed_angle = 60.0  # Можно поставить 0 или любой другой фиксированный угол
-
-            wrecked_ship = StaticShip(
-                sprite=wreck_sprite,
-                x=fixed_x,
-                y=fixed_y,
-                angle=fixed_angle
-            )
+            wrecked_ship = StaticShip(sprite=wreck_sprite, x=fixed_x, y=fixed_y, angle=0.0)
             self.objects.append(wrecked_ship)
-            print(
-                f"[DEBUG] В комнате ({self.x}, {self.y}) размещен корабль-обломок в ФИКСИРОВАННОЙ позиции: X={fixed_x}, Y={fixed_y}")
 
-            # =========================================================
-            # ВАРИАНТ 2: СЛУЧАЙНАЯ ПОЗИЦИЯ (ЗАКОММЕНТИРОВАН ДЛЯ ТЕСТОВ)
-            # Раскомментируйте этот блок и закомментируйте ВАРИАНТ 1 выше,
-            # чтобы вернуть случайную генерацию.
-            # =========================================================
-            """
-            margin = 150  # Отступ от стен комнаты
-            rand_x = (self.x * ROOM_WIDTH) + random.randint(margin, ROOM_WIDTH - margin)
-            rand_y = (self.y * ROOM_HEIGHT) + random.randint(margin, ROOM_HEIGHT - margin)
-            rand_angle = random.uniform(0, 2 * math.pi)
+        # --- НОВАЯ ЛОГИКА: Планета в центре комнаты (0, -1) ---
+        if planet_sprite and self.x == 0 and self.y == -1:
+            # Центр комнаты (0, -1)
+            planet_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2)
+            planet_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2)
 
-            wrecked_ship = StaticShip(
-                sprite=wreck_sprite,
-                x=rand_x,
-                y=rand_y,
-                angle=rand_angle
-            )
-            self.objects.append(wrecked_ship)
-            print(f"[DEBUG] В комнате ({self.x}, {self.y}) размещен корабль-обломок в СЛУЧАЙНОЙ позиции.")
-            """
-        # -------------------------------------------------------------
+            new_planet = StaticPlanet(sprite=planet_sprite, x=planet_x, y=planet_y)
+            self.objects.append(new_planet)
+            print(f"[DEBUG] Планета размещена в центре комнаты ({self.x}, {self.y}) по координатам ({planet_x}, {planet_y})")
+        # -----------------------------------------------------------------
 
         self.is_generated = True
 
-    def generate_belt(self, asteroid_sprites, inner_radius, outer_radius, counts, wreck_sprite=None):
-        """Генерация пояса астероидов. Также принимает wreck_sprite для комнаты (1,0)."""
+    # ... остальной код (generate_belt и т.д.) оставь без изменений ...
+
+    def generate_belt(self, asteroid_sprites, inner_radius, outer_radius, counts, wreck_sprite=None,
+                      planet_sprite=None):
+        """Генерация пояса астероидов."""
         center_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
         center_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
 
@@ -161,22 +127,31 @@ class Sector:
         self.asteroids = belt_asteroids
         self.belt = belt_asteroids
 
-        # Дублируем логику размещения корабля и здесь, на случай если комната (1,0) будет сгенерирована как пояс
-        if wreck_sprite and self.x == 1 and self.y == 0:
-            offset_from_edge = 400
-            fixed_x = (self.x * ROOM_WIDTH) + offset_from_edge
-            fixed_y = (self.y * ROOM_HEIGHT) + offset_from_edge
-            fixed_angle = 0.0
+        # --- ЛОГИКА ДЛЯ КОМНАТЫ (1, 0) --- (оставляем как есть)
+        if self.x == 1 and self.y == 0:
+            if wreck_sprite:
+                offset_from_edge = 400
+                wrecked_ship = StaticShip(sprite=wreck_sprite, x=(self.x * ROOM_WIDTH) + offset_from_edge,
+                                          y=(self.y * ROOM_HEIGHT) + offset_from_edge)
+                self.objects.append(wrecked_ship)
 
-            wrecked_ship = StaticShip(
-                sprite=wreck_sprite,
-                x=fixed_x,
-                y=fixed_y,
-                angle=fixed_angle
-            )
+            # Тут у тебя была планета для (1,0) — можно оставить или убрать, если не нужна
+            if planet_sprite:
+                margin_left = 300
+                margin_bottom = 300
+                planet_x = (self.x * ROOM_WIDTH) + margin_left
+                planet_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT - margin_bottom)
+                new_planet = StaticPlanet(sprite=planet_sprite, x=planet_x, y=planet_y)
+                self.objects.append(new_planet)
 
-            if not hasattr(self, 'objects'):
-                self.objects = []
-            self.objects.append(wrecked_ship)
+        # --- НОВАЯ ЛОГИКА: ПЛАНЕТА В ЦЕНТРЕ КОМНАТЫ (0, -1) ---
+        if planet_sprite and self.x == 0 and self.y == -1:
+            planet_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2)
+            planet_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2)
+
+            new_planet = StaticPlanet(sprite=planet_sprite, x=planet_x, y=planet_y, parallax_factor=0.4)
+            self.objects.append(new_planet)
+            print(f"[DEBUG] Планета добавлена в generate_belt для комнаты ({self.x}, {self.y})")
+        # -------------------------------------------------------------
 
         self.is_generated = True
