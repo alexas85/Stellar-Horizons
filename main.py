@@ -2,9 +2,12 @@
 import pygame
 import sys
 from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
+from game_objects.static_ship import StaticShip
 from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites
 from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
+from game_objects.static_planet import StaticPlanet
+
 
 
 def main():
@@ -111,41 +114,41 @@ def main():
                 for y in range(-1, 2):
                     screen.blit(stars, (offset_x + x * w, offset_y + y * h))
 
-        # --- ОТРИСОВКА ВСЕХ ОБЪЕКТОВ (Астероиды + Другие объекты) ---
-        all_objects = []
+                # --- ОТРИСОВКА ВСЕХ ОБЪЕКТОВ ---
+            all_objects = []
 
-        if current_sector:
-            if hasattr(current_sector, 'asteroids') and current_sector.asteroids:
-                all_objects.extend(current_sector.asteroids)
-            if hasattr(current_sector, 'objects') and current_sector.objects:
-                all_objects.extend(current_sector.objects)
+            if current_sector:
+                if hasattr(current_sector, 'asteroids') and current_sector.asteroids:
+                    all_objects.extend(current_sector.asteroids)
+                if hasattr(current_sector, 'objects') and current_sector.objects:
+                    all_objects.extend(current_sector.objects)
 
-        HIGHLIGHT_RADIUS_SQ = 128 ** 2  # Квадрат радиуса подсветки
+            for obj in all_objects:
+                if isinstance(obj, list):
+                    continue
 
-        for obj in all_objects:
-            if isinstance(obj, list):
-                continue
+                # Обновляем объект
+                if hasattr(obj, 'update'):
+                    obj.update()
 
-            # Обновляем объект
-            if hasattr(obj, 'update'):
-                obj.update()
+                show_highlight = False
 
-            # Проверка дистанции (только если у объекта есть координаты)
-            show_highlight = False
-            if hasattr(obj, 'x') and hasattr(obj, 'y'):
-                dist_sq = (obj.x - player.x) ** 2 + (obj.y - player.y) ** 2
-                if dist_sq <= HIGHLIGHT_RADIUS_SQ:
-                    show_highlight = True
+                # ПРОВЕРКА ДИСТАНЦИИ ТЕПЕРЬ ИНДИВИДУАЛЬНАЯ
+                if hasattr(obj, 'x') and hasattr(obj, 'y') and hasattr(obj, 'highlight_radius'):
+                    dist_sq = (obj.x - player.x) ** 2 + (obj.y - player.y) ** 2
+                    radius_sq = obj.highlight_radius ** 2
+                    if dist_sq <= radius_sq:
+                        show_highlight = True
 
-            # ОТРИСОВКА С ПРОВЕРКОЙ ТИПА
-            if hasattr(obj, 'draw'):
-                # Если это StaticShip (или другой объект с поддержкой подсветки) — передаем флаг
-                if hasattr(obj, '__class__') and obj.__class__.__name__ == 'StaticShip':
-                    obj.draw(screen, camera, show_highlight=show_highlight)
-                else:
-                    # Для астероидов и других объектов вызываем draw БЕЗ аргумента show_highlight
-                    obj.draw(screen, camera)
-        # -------------------------------------------------------------
+                # ОТРИСОВКА
+                if hasattr(obj, 'draw'):
+                    # Передаем флаг подсветки.
+                    # Если у объекта нет аргумента show_highlight (например, астероиды),
+                    # можно использовать try/except или просто передавать только тем, кто умеет.
+                    if isinstance(obj, StaticShip) or isinstance(obj, StaticPlanet):
+                        obj.draw(screen, camera, show_highlight=show_highlight)
+                    else:
+                        obj.draw(screen, camera)
 
         # Игрок
         player.draw(screen, camera.topleft)
