@@ -6,6 +6,10 @@ ROOM_HEIGHT = 4000
 CAMERA_WIDTH = 800
 CAMERA_HEIGHT = 600
 
+# Параметры комнаты «на поверхности планеты»
+PLANET_ROOM_WIDTH = 1280
+PLANET_ROOM_HEIGHT = 720
+
 # Цвета
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)

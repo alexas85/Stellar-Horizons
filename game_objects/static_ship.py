@@ -10,9 +10,9 @@ class StaticShip:
         self.angle = angle
         # Радиус подсветки для корабля — 128 пикселей
         self.highlight_radius = 128
-        self.highlight_thickness = 2
-        self.highlight_alpha = 128
-        self.highlight_color = (255, 255, 0)  # Жёлтый для корабля
+        self.highlight_thickness = 1
+        self.highlight_alpha = 70
+        self.highlight_color = (211, 211, 211)  # Жёлтый для корабля
 
     def update(self):
         pass
