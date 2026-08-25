@@ -17,7 +17,7 @@ class PlayerShip:
         self.target_scale = 1.0
         self.min_scale = 0.15
         self.landing_speed = 0.005
-        self.landing_move_speed = 0.5
+        self.landing_move_speed = 0.7
 
         # Целевая точка для посадки (центр планеты, а не комнаты)
         self.landing_target = None

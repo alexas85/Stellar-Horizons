@@ -203,14 +203,25 @@ def main():
             # Игрок
             player.draw(screen, camera.topleft)
 
-        # Отладочная информация
+        # --- ОТЛАДКА: Вывод информации на экран ---
         font = pygame.font.SysFont('Arial', 16)
+
+        # Считаем комнату (только если в космосе)
+        if not player.on_planet_surface:
+            room_x = int(player.x // ROOM_WIDTH)
+            room_y = int(player.y // ROOM_HEIGHT)
+            room_text = f"Room: {room_x}, {room_y}"
+        else:
+            # На планете можно показывать «Planet Room» или вообще ничего
+            room_text = "Room: Planet"
+
         count = 0
         if current_sector and current_sector.asteroids:
             count = sum(1 for a in current_sector.asteroids if not isinstance(a, list))
 
         mode_text = "PLANET" if player.on_planet_surface else "SPACE"
         info_text = (
+            f"{room_text} | "
             f"Mode: {mode_text} | "
             f"Pos: {int(player.x)}, {int(player.y)} | "
             f"Angle: {int(player.angle)} | "
