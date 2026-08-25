@@ -94,7 +94,7 @@ def main():
                 print("[ACTION] Начало посадки на планету")
 
         # Выход с планеты (Q)
-        if keys[pygame.K_q] and player.on_planet_surface and not player.is_landing:
+        if keys[pygame.K_q] and player.on_planet_surface:
             player.exit_planet(*last_space_pos)
             print("[ACTION] Выход в космос")
 

@@ -82,7 +82,7 @@ class PlayerShip:
 
     def exit_planet(self, return_x, return_y):
         self.on_planet_surface = False
-        self.is_landing = False
+        self.is_landing = False  # <--- ЭТОГО НЕ ХВАТАЛО
         self.x = return_x
         self.y = return_y
         self.velocity = pygame.math.Vector2(0, 0)
@@ -90,6 +90,7 @@ class PlayerShip:
         self.angular_velocity = 0.0
         self.is_thrusting = False
         self.landing_target = None
+        self.target_scale = 1.0  # <--- вернём нормальный масштаб
 
     def update(self):
         # 1. Посадка: движение к центру планеты + уменьшение
