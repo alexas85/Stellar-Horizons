@@ -13,12 +13,14 @@ from config import RESOURCE_ICONS
 
 def draw_hud(screen, player, font, resource_surfaces, start_x, y_offset=20):
     """
-    Рисует иконки ресурсов в правом верхнем углу.
-    Теперь отображаются ВСЕ ресурсы, даже с количеством 0.
+    Рисует HUD строго слева направо.
+    Размер иконок: 15x15.
+    Отступ между иконками: 35px (чтобы цифры не слипались).
     """
     x = start_x
     y = y_offset
 
+    # Жесткий порядок ресурсов
     resource_order = ["metal", "precious", "crystal", "energy", "mineral", "uranium"]
 
     for name in resource_order:
@@ -29,16 +31,27 @@ def draw_hud(screen, player, font, resource_surfaces, start_x, y_offset=20):
 
         icon = resource_surfaces[name]
 
-        # Рисуем иконку
+        # 1. Гарантированно приводим иконку к 15x15
+        if icon.get_width() != 15 or icon.get_height() != 15:
+            icon = pygame.transform.smoothscale(icon, (15, 15))
+
+        # 2. Рисуем иконку точно в текущую позицию X
         screen.blit(icon, (x, y))
 
-        # Рисуем цифру количества рядом
-        text_surf = font.render(str(count), True, (255, 255, 255))
-        text_rect = text_surf.get_rect(midleft=(x + icon.get_width() + 4, y + icon.get_height() // 2))
-        screen.blit(text_surf, text_rect)
+        # 3. Рисуем текст (количество)
+        # Отступ от иконки до текста: 4 пикселя (для компактности)
+        text_x = x + icon.get_width() + 4
 
-        # Сдвигаем следующую иконку левее
-        x -= (icon.get_width() + 32)
+        # Центрируем текст по вертикали относительно иконки (15px / 2 = 7.5 -> 8)
+        text_y = y
+
+        text_surf = font.render(str(count), True, (255, 255, 255))
+        screen.blit(text_surf, (text_x, text_y))
+
+        # 4. Сдвигаем X для СЛЕДУЮЩЕЙ иконки
+        # Формула: ширина иконки (15) + отступ текста (4) + ширина текста (примерно 10-12) + запас
+        # Ставим фиксированный шаг 35px. Этого хватит даже для трехзначных чисел.
+        x += 60
 
 
 def main():
@@ -91,7 +104,7 @@ def main():
             resource_surfaces[name] = placeholder
     # ----------------------------------------
 
-    font_hud = pygame.font.SysFont('Arial', 18, bold=True)
+    font_hud = pygame.font.SysFont('Arial', 15, bold=False)
     # ----------------------------------------
 
     # 2. Создание объектов
@@ -307,14 +320,14 @@ def main():
                     pygame.draw.rect(screen, color, draw_rect, 2)
 
         # --- ОТРИСОВКА HUD (РЕСУРСЫ) ---
-        hud_start_x = CAMERA_WIDTH - 40
+        hud_start_x = 10
         draw_hud(
             screen=screen,
             player=player,
             font=font_hud,
             resource_surfaces=resource_surfaces,
             start_x=hud_start_x,
-            y_offset=20
+            y_offset=30
         )
 
         pygame.display.flip()
