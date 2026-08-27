@@ -1,13 +1,44 @@
-# main.py
 import pygame
 import sys
+import os
 from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
-from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT  # Новые константы
+from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
 from game_objects.static_ship import StaticShip
 from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites
 from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
+from config import RESOURCE_ICONS
+
+
+def draw_hud(screen, player, font, resource_surfaces, start_x, y_offset=20):
+    """
+    Рисует иконки ресурсов в правом верхнем углу.
+    Теперь отображаются ВСЕ ресурсы, даже с количеством 0.
+    """
+    x = start_x
+    y = y_offset
+
+    resource_order = ["metal", "precious", "crystal", "energy", "mineral", "uranium"]
+
+    for name in resource_order:
+        count = player.inventory.get(name, 0)
+
+        if name not in resource_surfaces:
+            continue
+
+        icon = resource_surfaces[name]
+
+        # Рисуем иконку
+        screen.blit(icon, (x, y))
+
+        # Рисуем цифру количества рядом
+        text_surf = font.render(str(count), True, (255, 255, 255))
+        text_rect = text_surf.get_rect(midleft=(x + icon.get_width() + 4, y + icon.get_height() // 2))
+        screen.blit(text_surf, text_rect)
+
+        # Сдвигаем следующую иконку левее
+        x -= (icon.get_width() + 32)
 
 
 def main():
@@ -42,6 +73,27 @@ def main():
         print("Планета не появится в комнате. Проверьте путь к файлу.")
     # ----------------------------------------
 
+    # --- ЗАГРУЗКА ИКОНОК РЕСУРСОВ ---
+    resource_surfaces = {}
+    for name, path in RESOURCE_ICONS.items():
+        try:
+            if os.path.exists(path):
+                surf = pygame.image.load(path).convert_alpha()
+                surf = pygame.transform.smoothscale(surf, (24, 24))
+                resource_surfaces[name] = surf
+                print(f"[SUCCESS] Иконка загружена: {name} -> {path}")
+            else:
+                raise FileNotFoundError
+        except Exception as e:
+            print(f"[ERROR] Не удалось загрузить иконку {name}: {e}")
+            placeholder = pygame.Surface((24, 24))
+            placeholder.fill((150, 150, 150))
+            resource_surfaces[name] = placeholder
+    # ----------------------------------------
+
+    font_hud = pygame.font.SysFont('Arial', 18, bold=True)
+    # ----------------------------------------
+
     # 2. Создание объектов
     player = PlayerShip(
         x=ROOM_WIDTH // 2,
@@ -50,15 +102,25 @@ def main():
         movement_sprites=movement_sprites
     )
 
-    generator = WorldGenerator()
+    # ВАЖНО: Если в классе PlayerShip нет self.inventory в __init__,
+    # мы добавляем его здесь вручную для теста.
+    if not hasattr(player, 'inventory'):
+        player.inventory = {
+            "metal": 0,
+            "precious": 0,
+            "crystal": 0,
+            "energy": 0,
+            "mineral": 0,
+            "uranium": 0
+        }
 
+    generator = WorldGenerator()
     camera = pygame.Rect(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT)
     running = True
 
     trigger_distance_x = ROOM_WIDTH - 50
     trigger_distance_y = ROOM_HEIGHT - 50
 
-    # Переменная для хранения позиции в космосе перед входом на планету
     last_space_pos = (player.x, player.y)
 
     while running:
@@ -70,7 +132,7 @@ def main():
         # --- Управление ---
         keys = pygame.key.get_pressed()
 
-        # Вход на планету (E) — только если не в процессе посадки и не на планете
+        # Вход на планету (E)
         if keys[pygame.K_e] and not player.is_landing and not player.on_planet_surface:
             room_x = int(player.x // ROOM_WIDTH)
             room_y = int(player.y // ROOM_HEIGHT)
@@ -112,12 +174,10 @@ def main():
 
         # Движение камеры
         if player.on_planet_surface:
-            # Камера на планете: центрируем на игроке, но не выходим за границы комнаты
             target_x = max(0, min(player.x - CAMERA_WIDTH // 2, PLANET_ROOM_WIDTH - CAMERA_WIDTH))
             target_y = max(0, min(player.y - CAMERA_HEIGHT // 2, PLANET_ROOM_HEIGHT - CAMERA_HEIGHT))
             camera.topleft = (target_x, target_y)
         else:
-            # Камера в космосе: обычная слежка за игроком
             target_x = player.x - CAMERA_WIDTH // 2
             target_y = player.y - CAMERA_HEIGHT // 2
             camera.topleft = (target_x, target_y)
@@ -125,14 +185,15 @@ def main():
         # Определение текущей комнаты (только для космоса)
         room_x = 0
         room_y = 0
+        local_x = 0
+        local_y = 0
+
         if not player.on_planet_surface:
             room_x = int(player.x // ROOM_WIDTH)
             room_y = int(player.y // ROOM_HEIGHT)
-
             local_x = player.x % ROOM_WIDTH
             local_y = player.y % ROOM_HEIGHT
 
-            # Упреждающая загрузка соседей
             should_preload = False
             if (local_x < trigger_distance_x or local_x > ROOM_WIDTH - trigger_distance_x or
                     local_y < trigger_distance_y or local_y > ROOM_HEIGHT - trigger_distance_y):
@@ -145,17 +206,27 @@ def main():
         if not player.on_planet_surface:
             current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite, planet_sprite=planet_sprite)
 
+        # --- ЛОГИКА ДОБЫЧИ РЕСУРСОВ (Столкновение с астероидами) ---
+        if current_sector and current_sector.asteroids:
+            for asteroid in current_sector.asteroids[:]:  # [:] для безопасной итерации при удалении
+                if hasattr(asteroid, 'rect'):
+                    player_rect = player.rect.copy()
+                    player_rect.center = (player.x, player.y)
+
+                    if player_rect.colliderect(asteroid.rect):
+                        player.inventory["metal"] += 1
+                        print(f"Добыт металл! Всего: {player.inventory['metal']}")
+
+                        current_sector.asteroids.remove(asteroid)
+                        break  # Чтобы не собрать один астероид 60 раз в секунду
+        # ------------------------------------------------------------
+
         # --- Отрисовка ---
         if player.on_planet_surface:
-            # === КОМНАТА ПЛАНЕТЫ (ГОЛУБОЙ ФОН) ===
-            screen.fill((135, 206, 235))  # Sky Blue — «небо» планеты
-
-            # Игрок рисуется как обычно (координаты уже в системе комнаты планеты)
+            screen.fill((135, 206, 235))  # Sky Blue
             player.draw(screen, camera.topleft)
-
         else:
-            # === КОСМОС ===
-            screen.fill((0, 0, 20))  # чёрный космос
+            screen.fill((0, 0, 20))  # Чёрный космос
 
             # Параллакс звёзд
             if backgrounds and "stars" in backgrounds:
@@ -169,7 +240,6 @@ def main():
                     for y in range(-1, 2):
                         screen.blit(stars, (offset_x + x * w, offset_y + y * h))
 
-            # Отрисовка астероидов, обломков, планет
             all_objects = []
             if current_sector:
                 if hasattr(current_sector, 'asteroids') and current_sector.asteroids:
@@ -181,38 +251,32 @@ def main():
                 if isinstance(obj, list):
                     continue
 
-                # Обновляем объект
                 if hasattr(obj, 'update'):
                     obj.update()
 
                 show_highlight = False
-                # ПРОВЕРКА ДИСТАНЦИИ
                 if (hasattr(obj, 'x') and hasattr(obj, 'y') and hasattr(obj, 'highlight_radius')):
                     dist_sq = (obj.x - player.x) ** 2 + (obj.y - player.y) ** 2
                     radius_sq = obj.highlight_radius ** 2
                     if dist_sq <= radius_sq:
                         show_highlight = True
 
-                # ОТРИСОВКА
                 if hasattr(obj, 'draw'):
                     if isinstance(obj, (StaticShip, StaticPlanet)):
                         obj.draw(screen, camera, show_highlight=show_highlight)
                     else:
                         obj.draw(screen, camera)
 
-            # Игрок
             player.draw(screen, camera.topleft)
 
-        # --- ОТЛАДКА: Вывод информации на экран ---
-        font = pygame.font.SysFont('Arial', 16)
+        # --- ОТЛАДКА: Вывод информации на экран (Комната, Позиция и т.д.) ---
+        font_debug = pygame.font.SysFont('Arial', 16)
 
-        # Считаем комнату (только если в космосе)
         if not player.on_planet_surface:
-            room_x = int(player.x // ROOM_WIDTH)
-            room_y = int(player.y // ROOM_HEIGHT)
-            room_text = f"Room: {room_x}, {room_y}"
+            rx = int(player.x // ROOM_WIDTH)
+            ry = int(player.y // ROOM_HEIGHT)
+            room_text = f"Room: {rx}, {ry}"
         else:
-            # На планете можно показывать «Planet Room» или вообще ничего
             room_text = "Room: Planet"
 
         count = 0
@@ -227,10 +291,10 @@ def main():
             f"Angle: {int(player.angle)} | "
             f"Asteroids: {count}"
         )
-        text_surf = font.render(info_text, True, (255, 255, 255))
+        text_surf = font_debug.render(info_text, True, (255, 255, 255))
         screen.blit(text_surf, (10, 10))
 
-        # --- ОТЛАДКА: Визуализация границ комнат (только в космосе) ---
+        # --- ВИЗУАЛИЗАЦИЯ ГРАНИЦ КОМНАТ (Только в космосе) ---
         if not player.on_planet_surface:
             for key, sector in generator.sectors.items():
                 sx, sy = key
@@ -241,6 +305,17 @@ def main():
                 if draw_rect.colliderect(screen.get_rect()):
                     color = (0, 255, 0) if sector.is_generated else (255, 0, 0)
                     pygame.draw.rect(screen, color, draw_rect, 2)
+
+        # --- ОТРИСОВКА HUD (РЕСУРСЫ) ---
+        hud_start_x = CAMERA_WIDTH - 40
+        draw_hud(
+            screen=screen,
+            player=player,
+            font=font_hud,
+            resource_surfaces=resource_surfaces,
+            start_x=hud_start_x,
+            y_offset=20
+        )
 
         pygame.display.flip()
         clock.tick(60)

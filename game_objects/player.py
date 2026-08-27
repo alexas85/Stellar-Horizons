@@ -1,4 +1,3 @@
-# game_objects/player.py
 import pygame
 import math
 from config import SHIP_ACCELERATION
@@ -32,14 +31,26 @@ class PlayerShip:
         self.idle_sprite = idle_sprite
         self.movement_sprites = movement_sprites
         self.original_image = idle_sprite
-        self.image = self.original_image
-        self.rect = self.image.get_rect()
+        # rect будет обновляться в update(), здесь задаём заглушку
+        self.rect = self.idle_sprite.get_rect(topleft=(self.x, self.y))
 
         # Анимация двигателей
         self.animation_index = 0
         self.animation_timer = 0
         self.animation_speed = 100
         self.is_thrusting = False
+
+        # Инвентарь
+        # Если вдруг где-то уже создали inventory (например, в main.py), не перезаписываем
+        if not hasattr(self, 'inventory'):
+            self.inventory = {
+                "metal": 1000,
+                "precious": 1000,
+                "crystal": 1000,
+                "energy": 1000,
+                "mineral": 1000,
+                "uranium": 1000
+            }
 
     def rotate(self, direction):
         target_angular_velocity = direction * self.max_angular_velocity
@@ -73,7 +84,7 @@ class PlayerShip:
             # Летим в центр самой планеты (её координаты)
             self.landing_target = pygame.math.Vector2(planet.x, planet.y)
         else:
-            # Фолбэк: если планета не передана — летим в центр комнаты (как раньше)
+            # Фолбэк: если планета не передана — летим в центр комнаты
             from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
             self.landing_target = pygame.math.Vector2(
                 PLANET_ROOM_WIDTH // 2,
@@ -82,7 +93,7 @@ class PlayerShip:
 
     def exit_planet(self, return_x, return_y):
         self.on_planet_surface = False
-        self.is_landing = False  # <--- ЭТОГО НЕ ХВАТАЛО
+        self.is_landing = False  # <-- Исправлено: теперь сбрасывается
         self.x = return_x
         self.y = return_y
         self.velocity = pygame.math.Vector2(0, 0)
@@ -90,7 +101,7 @@ class PlayerShip:
         self.angular_velocity = 0.0
         self.is_thrusting = False
         self.landing_target = None
-        self.target_scale = 1.0  # <--- вернём нормальный масштаб
+        self.target_scale = 1.0  # Возвращаем нормальный масштаб
 
     def update(self):
         # 1. Посадка: движение к центру планеты + уменьшение
@@ -124,6 +135,8 @@ class PlayerShip:
                 t = self.landing_progress
                 self.target_scale = max(self.min_scale, 1.0 - t * (1.0 - self.min_scale))
 
+            # Обновляем rect для корректных столкновений даже во время посадки
+            self._update_rect()
             return
 
         # 2. На планете
@@ -134,6 +147,7 @@ class PlayerShip:
             self.angular_velocity *= 0.95
             if abs(self.angular_velocity) < 0.01:
                 self.angular_velocity = 0.0
+            self._update_rect()
             return
 
         # 3. Космос
@@ -151,6 +165,9 @@ class PlayerShip:
         self.x += self.velocity.x
         self.y += self.velocity.y
 
+        # Обновляем rect после изменения позиции
+        self._update_rect()
+
         # Анимация двигателей
         if self.is_thrusting and self.movement_sprites:
             self.animation_timer += 1
@@ -163,6 +180,13 @@ class PlayerShip:
             self.original_image = self.idle_sprite
             self.animation_index = 0
             self.animation_timer = 0
+
+    def _update_rect(self):
+        """Обновляет rect под текущие координаты и размер спрайта."""
+        # Для корректного вращения и масштабирования в draw() мы используем get_rect(center=...)
+        # Но для коллизий нам нужен rect с текущей позицией.
+        # Здесь мы просто обновляем topleft, чтобы rect соответствовал x,y
+        self.rect.topleft = (self.x, self.y)
 
     def draw(self, surface, camera_offset):
         cam_x, cam_y = camera_offset

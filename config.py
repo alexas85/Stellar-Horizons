@@ -30,3 +30,12 @@ SHIP_CLASSES = {
     4: {"size": (64, 64), "power": 1.2},
     5: {"size": (32, 32), "power": 0.8},
 }
+
+RESOURCE_ICONS = {
+    "metal": "assets/resources/res_metal_base.png",
+    "precious": "assets/resources/res_metal_noble.png",
+    "crystal": "assets/resources/res_crystal.png",
+    "energy": "assets/resources/res_energy.png",
+    "mineral": "assets/resources/res_mineral.png",
+    "uranium": "assets/resources/res_uranium.png",
+}
