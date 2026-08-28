@@ -1,6 +1,12 @@
 import pygame
 import math
 from config import SHIP_ACCELERATION
+from game_objects.bullet import Bullet
+
+
+# Важно: убедитесь, что класс Bullet импортируется корректно.
+# Если Bullet находится в game_objects.bullet, раскомментируйте строку ниже:
+# from game_objects.bullet import Bullet
 
 class PlayerShip:
     def __init__(self, x, y, idle_sprite, movement_sprites):
@@ -18,7 +24,6 @@ class PlayerShip:
         self.landing_speed = 0.005
         self.landing_move_speed = 0.7
 
-        # Целевая точка для посадки (центр планеты, а не комнаты)
         self.landing_target = None
 
         # Физика вращения
@@ -31,8 +36,9 @@ class PlayerShip:
         self.idle_sprite = idle_sprite
         self.movement_sprites = movement_sprites
         self.original_image = idle_sprite
-        # rect будет обновляться в update(), здесь задаём заглушку
-        self.rect = self.idle_sprite.get_rect(topleft=(self.x, self.y))
+
+        # rect инициализируем по центру, чтобы сразу было корректно
+        self.rect = self.idle_sprite.get_rect(center=(self.x, self.y))
 
         # Анимация двигателей
         self.animation_index = 0
@@ -40,8 +46,12 @@ class PlayerShip:
         self.animation_speed = 100
         self.is_thrusting = False
 
-        # Инвентарь
-        # Если вдруг где-то уже создали inventory (например, в main.py), не перезаписываем
+        # Выстрелы
+        self.bullets = []
+        self.fire_cooldown = 0
+        self.cooldown_time = 250  # мс между выстрелами
+
+        # Инвентарь (создаём только если ещё нет)
         if not hasattr(self, 'inventory'):
             self.inventory = {
                 "metal": 1000,
@@ -71,20 +81,16 @@ class PlayerShip:
         self.is_thrusting = True
 
     def start_landing(self, planet=None):
-        """
-        planet: объект StaticPlanet, у которого есть .x и .y (центр планеты)
-        """
         self.is_landing = True
         self.landing_progress = 0.0
         self.on_planet_surface = False
         self.velocity = pygame.math.Vector2(0, 0)
         self.angular_velocity = 0.0
 
-        if planet is not None:
-            # Летим в центр самой планеты (её координаты)
+        if planet is not None and hasattr(planet, 'x') and hasattr(planet, 'y'):
             self.landing_target = pygame.math.Vector2(planet.x, planet.y)
         else:
-            # Фолбэк: если планета не передана — летим в центр комнаты
+            # Фолбэк: центр комнаты на планете
             from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
             self.landing_target = pygame.math.Vector2(
                 PLANET_ROOM_WIDTH // 2,
@@ -93,7 +99,7 @@ class PlayerShip:
 
     def exit_planet(self, return_x, return_y):
         self.on_planet_surface = False
-        self.is_landing = False  # <-- Исправлено: теперь сбрасывается
+        self.is_landing = False
         self.x = return_x
         self.y = return_y
         self.velocity = pygame.math.Vector2(0, 0)
@@ -101,13 +107,32 @@ class PlayerShip:
         self.angular_velocity = 0.0
         self.is_thrusting = False
         self.landing_target = None
-        self.target_scale = 1.0  # Возвращаем нормальный масштаб
+        self.target_scale = 1.0
+        # Обновляем rect после телепортации
+        self._update_rect()
+
+    def shoot(self, bullet_sprite):
+        current_time = pygame.time.get_ticks()
+        if self.fire_cooldown > 0 and current_time < self.fire_cooldown:
+            return None
+
+        new_bullet = Bullet(
+            x=self.x,
+            y=self.y,
+            angle=self.angle,
+            speed=12,
+            max_distance=300
+        )
+        new_bullet.set_sprite(bullet_sprite)
+
+        self.bullets.append(new_bullet)
+        self.fire_cooldown = current_time + self.cooldown_time
+        return new_bullet
 
     def update(self):
-        # 1. Посадка: движение к центру планеты + уменьшение
+        # 1. Посадка
         if self.is_landing and not self.on_planet_surface:
             if self.landing_target is None:
-                # На всякий случай ставим центр комнаты, если что-то пошло не так
                 from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
                 self.landing_target = pygame.math.Vector2(PLANET_ROOM_WIDTH // 2, PLANET_ROOM_HEIGHT // 2)
 
@@ -115,7 +140,6 @@ class PlayerShip:
             direction = self.landing_target - current_pos
             dist = direction.length()
 
-            # Если почти долетели — ставим точно в центр планеты и завершаем
             if dist < 2.0:
                 self.x = self.landing_target.x
                 self.y = self.landing_target.y
@@ -135,8 +159,7 @@ class PlayerShip:
                 t = self.landing_progress
                 self.target_scale = max(self.min_scale, 1.0 - t * (1.0 - self.min_scale))
 
-            # Обновляем rect для корректных столкновений даже во время посадки
-            self._update_rect()
+            self._update_rect()  # Важно: обновляем rect с учётом масштаба
             return
 
         # 2. На планете
@@ -165,7 +188,6 @@ class PlayerShip:
         self.x += self.velocity.x
         self.y += self.velocity.y
 
-        # Обновляем rect после изменения позиции
         self._update_rect()
 
         # Анимация двигателей
@@ -181,18 +203,32 @@ class PlayerShip:
             self.animation_index = 0
             self.animation_timer = 0
 
+        # Обновление и очистка пуль
+        for bullet in self.bullets[:]:
+            bullet.update()
+            if not bullet.is_active():
+                self.bullets.remove(bullet)
+
     def _update_rect(self):
-        """Обновляет rect под текущие координаты и размер спрайта."""
-        # Для корректного вращения и масштабирования в draw() мы используем get_rect(center=...)
-        # Но для коллизий нам нужен rect с текущей позицией.
-        # Здесь мы просто обновляем topleft, чтобы rect соответствовал x,y
-        self.rect.topleft = (self.x, self.y)
+        """Обновляет rect по центру (x, y) и с учётом текущего масштаба."""
+        # Получаем размер текущего изображения (учитывая масштаб, если нужно)
+        w = self.original_image.get_width()
+        h = self.original_image.get_height()
+
+        # Если корабль уменьшается (посадка), используем target_scale для расчёта размера rect
+        if self.is_landing and not self.on_planet_surface:
+            w = int(w * self.target_scale)
+            h = int(h * self.target_scale)
+
+        self.rect = pygame.Rect(0, 0, w, h)
+        self.rect.center = (self.x, self.y)
 
     def draw(self, surface, camera_offset):
         cam_x, cam_y = camera_offset
         draw_x = self.x - cam_x
         draw_y = self.y - cam_y
 
+        # Посадка: уменьшаем и вращаем
         if self.is_landing and not self.on_planet_surface:
             scale = self.target_scale
             w = int(self.original_image.get_width() * scale)
@@ -203,6 +239,7 @@ class PlayerShip:
             surface.blit(rotated, rect)
             return
 
+        # Обычный режим: просто вращаем
         rotated = pygame.transform.rotate(self.original_image, -self.angle)
         rect = rotated.get_rect(center=(draw_x, draw_y))
         surface.blit(rotated, rect)

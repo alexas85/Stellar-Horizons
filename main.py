@@ -1,6 +1,7 @@
 import pygame
 import sys
 import os
+import math
 from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
 from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
 from game_objects.static_ship import StaticShip
@@ -9,13 +10,14 @@ from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
 from config import RESOURCE_ICONS
+from game_objects.bullet import Bullet
 
 
 def draw_hud(screen, player, font, resource_surfaces, start_x, y_offset=20):
     """
     Рисует HUD строго слева направо.
     Размер иконок: 15x15.
-    Отступ между иконками: 35px (чтобы цифры не слипались).
+    Отступ между иконками: 60px (запас для цифр).
     """
     x = start_x
     y = y_offset
@@ -35,22 +37,17 @@ def draw_hud(screen, player, font, resource_surfaces, start_x, y_offset=20):
         if icon.get_width() != 15 or icon.get_height() != 15:
             icon = pygame.transform.smoothscale(icon, (15, 15))
 
-        # 2. Рисуем иконку точно в текущую позицию X
+        # 2. Рисуем иконку
         screen.blit(icon, (x, y))
 
         # 3. Рисуем текст (количество)
-        # Отступ от иконки до текста: 4 пикселя (для компактности)
         text_x = x + icon.get_width() + 4
-
-        # Центрируем текст по вертикали относительно иконки (15px / 2 = 7.5 -> 8)
         text_y = y
 
         text_surf = font.render(str(count), True, (255, 255, 255))
         screen.blit(text_surf, (text_x, text_y))
 
-        # 4. Сдвигаем X для СЛЕДУЮЩЕЙ иконки
-        # Формула: ширина иконки (15) + отступ текста (4) + ширина текста (примерно 10-12) + запас
-        # Ставим фиксированный шаг 35px. Этого хватит даже для трехзначных чисел.
+        # 4. Сдвигаем X для следующей иконки
         x += 60
 
 
@@ -84,6 +81,17 @@ def main():
     except FileNotFoundError:
         print(f"[ERROR] Не удалось найти спрайт планеты: {planet_path}")
         print("Планета не появится в комнате. Проверьте путь к файлу.")
+
+    # --- ЗАГРУЗКА СПРАЙТА ВЫСТРЕЛА ---
+    bullet_path = "assets/projectiles/shot_16px_mod1.png"
+    bullet_sprite = None
+    try:
+        bullet_sprite = pygame.image.load(bullet_path).convert_alpha()
+        print(f"[SUCCESS] Спрайт выстрела загружен: {bullet_path}")
+    except FileNotFoundError:
+        print(f"[WARNING] Не удалось найти выстрел: {bullet_path}. Используется заглушка.")
+        bullet_sprite = pygame.Surface((16, 16))
+        bullet_sprite.fill((255, 0, 0))  # Красная точка вместо спрайта
     # ----------------------------------------
 
     # --- ЗАГРУЗКА ИКОНОК РЕСУРСОВ ---
@@ -105,7 +113,6 @@ def main():
     # ----------------------------------------
 
     font_hud = pygame.font.SysFont('Arial', 15, bold=False)
-    # ----------------------------------------
 
     # 2. Создание объектов
     player = PlayerShip(
@@ -116,7 +123,6 @@ def main():
     )
 
     # ВАЖНО: Если в классе PlayerShip нет self.inventory в __init__,
-    # мы добавляем его здесь вручную для теста.
     if not hasattr(player, 'inventory'):
         player.inventory = {
             "metal": 0,
@@ -182,6 +188,11 @@ def main():
             if keys[pygame.K_w]:
                 player.accelerate()
 
+        # СТРЕЛЬБА (Пробел)
+        # Вызываем метод shoot у игрока, передавая спрайт пули
+        if keys[pygame.K_SPACE]:
+            player.shoot(bullet_sprite)
+
         # --- Логика игры ---
         player.update()
 
@@ -213,15 +224,17 @@ def main():
                 should_preload = True
 
             if should_preload:
-                generator.preload_neighbors(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite, planet_sprite=planet_sprite)
+                generator.preload_neighbors(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
+                                            planet_sprite=planet_sprite)
 
         current_sector = None
         if not player.on_planet_surface:
-            current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite, planet_sprite=planet_sprite)
+            current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
+                                                  planet_sprite=planet_sprite)
 
         # --- ЛОГИКА ДОБЫЧИ РЕСУРСОВ (Столкновение с астероидами) ---
         if current_sector and current_sector.asteroids:
-            for asteroid in current_sector.asteroids[:]:  # [:] для безопасной итерации при удалении
+            for asteroid in current_sector.asteroids[:]:
                 if hasattr(asteroid, 'rect'):
                     player_rect = player.rect.copy()
                     player_rect.center = (player.x, player.y)
@@ -229,9 +242,8 @@ def main():
                     if player_rect.colliderect(asteroid.rect):
                         player.inventory["metal"] += 1
                         print(f"Добыт металл! Всего: {player.inventory['metal']}")
-
                         current_sector.asteroids.remove(asteroid)
-                        break  # Чтобы не собрать один астероид 60 раз в секунду
+                        break
         # ------------------------------------------------------------
 
         # --- Отрисовка ---
@@ -280,9 +292,25 @@ def main():
                     else:
                         obj.draw(screen, camera)
 
+            # --- ОТРИСОВКА И ОБНОВЛЕНИЕ ПУЛЬ ---
+            # Проходим по копии списка, так как внутри цикла могут удаляться элементы
+            for bullet in player.bullets[:]:
+                bullet.update()  # Двигаем пулю
+
+                # Рисуем пулю относительно камеры
+                screen_x = bullet.x - camera.x
+                screen_y = bullet.y - camera.y
+                rect = bullet.sprite.get_rect(center=(screen_x, screen_y))
+                screen.blit(bullet.sprite, rect)
+
+                # Если пуля пролетела лимит (300px), удаляем её
+                if not bullet.is_active():
+                    player.bullets.remove(bullet)
+            # ------------------------------------
+
             player.draw(screen, camera.topleft)
 
-        # --- ОТЛАДКА: Вывод информации на экран (Комната, Позиция и т.д.) ---
+        # --- ОТЛАДКА: Вывод информации на экран ---
         font_debug = pygame.font.SysFont('Arial', 16)
 
         if not player.on_planet_surface:
@@ -302,12 +330,12 @@ def main():
             f"Mode: {mode_text} | "
             f"Pos: {int(player.x)}, {int(player.y)} | "
             f"Angle: {int(player.angle)} | "
-            f"Asteroids: {count}"
+            f"Asteroids: {count} | Bullets: {len(player.bullets)}"
         )
         text_surf = font_debug.render(info_text, True, (255, 255, 255))
         screen.blit(text_surf, (10, 10))
 
-        # --- ВИЗУАЛИЗАЦИЯ ГРАНИЦ КОМНАТ (Только в космосе) ---
+        # --- ВИЗУАЛИЗАЦИЯ ГРАНИЦ КОМНАТ ---
         if not player.on_planet_surface:
             for key, sector in generator.sectors.items():
                 sx, sy = key
