@@ -292,18 +292,11 @@ def main():
                     else:
                         obj.draw(screen, camera)
 
+ 
             # --- ОТРИСОВКА И ОБНОВЛЕНИЕ ПУЛЬ ---
-            # Проходим по копии списка, так как внутри цикла могут удаляться элементы
             for bullet in player.bullets[:]:
-                bullet.update()  # Двигаем пулю
-
-                # Рисуем пулю относительно камеры
-                screen_x = bullet.x - camera.x
-                screen_y = bullet.y - camera.y
-                rect = bullet.sprite.get_rect(center=(screen_x, screen_y))
-                screen.blit(bullet.sprite, rect)
-
-                # Если пуля пролетела лимит (300px), удаляем её
+                bullet.update()
+                bullet.draw(screen, camera)  # <-- теперь пуля сама знает про поворот и камеру
                 if not bullet.is_active():
                     player.bullets.remove(bullet)
             # ------------------------------------

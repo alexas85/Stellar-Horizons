@@ -1,53 +1,61 @@
 import pygame
 import math
 
-
 class Bullet:
-    def __init__(self, x, y, angle, speed=15, max_distance=300):
+    def __init__(self, x, y, angle, speed=12, max_distance=300):
         self.x = x
         self.y = y
-        self.angle = angle  # Угол в радианах
+        self.angle = angle          # угол в градусах (как у корабля)
         self.speed = speed
         self.max_distance = max_distance
-
-        # Пройденное расстояние
         self.distance_traveled = 0
+        self.sprite = None           # сюда запишется спрайт из player.shoot()
 
-        # Вектор движения (dx, dy)
-        rad = math.radians(angle)
-        self.dx = math.cos(rad) * speed
-        self.dy = math.sin(rad) * speed
+        # Прямоугольник для коллизий (пока заглушка, будет обновляться)
+        self.rect = pygame.Rect(0, 0, 16, 16)
 
-        # Спрайт (загрузим позже в main.py, чтобы не тормозить инициализацию)
-        self.sprite = None
-        self.size = 16
-
-    def set_sprite(self, sprite):
-        """Устанавливает спрайт и подгоняет его под размер"""
-        if sprite:
-            self.sprite = pygame.transform.smoothscale(sprite, (self.size, self.size))
-        else:
-            # Заглушка, если спрайт не найден
-            self.sprite = pygame.Surface((self.size, self.size))
-            self.sprite.fill((255, 0, 0))
+    def set_sprite(self, surface):
+        """Устанавливает спрайт и сразу подгоняет rect под его размер"""
+        self.sprite = surface
+        if self.sprite:
+            self.rect.width = self.sprite.get_width()
+            self.rect.height = self.sprite.get_height()
 
     def update(self):
-        """Двигает пулю и считает дистанцию"""
-        self.x += self.dx
-        self.y += self.dy
-        self.distance_traveled += self.speed
+        """Двигает пулю вперёд по её углу и считает пройденное расстояние"""
+        rad = math.radians(self.angle)
+        dx = math.cos(rad) * self.speed
+        dy = math.sin(rad) * self.speed
+
+        self.x += dx
+        self.y += dy
+        self.distance_traveled += math.hypot(dx, dy)
+
+        # Обновляем rect для коллизий
+        if self.sprite:
+            w = self.sprite.get_width()
+            h = self.sprite.get_height()
+            self.rect = pygame.Rect(0, 0, w, h)
+            self.rect.center = (self.x, self.y)
 
     def is_active(self):
-        """Возвращает True, если пуля еще в игре (не пролетела лимит)"""
+        """Возвращает True, пока пуля не пролетела лимит дистанции"""
         return self.distance_traveled < self.max_distance
 
-    def draw(self, screen, camera):
+    def draw(self, surface, camera):
+        """Рисует пулю с поворотом на её угол"""
+        cam_x, cam_y = camera.x, camera.y
+        draw_x = self.x - cam_x
+        draw_y = self.y - cam_y
+
         if not self.sprite:
+            # Если спрайта нет — рисуем красный квадрат (для отладки)
+            rect = pygame.Rect(draw_x - 8, draw_y - 8, 16, 16)
+            pygame.draw.rect(surface, (255, 0, 0), rect)
             return
 
-        screen_x = self.x - camera.x
-        screen_y = self.y - camera.y
+        # Поворот спрайта на self.angle
+        rotated = pygame.transform.rotate(self.sprite, -self.angle)  # минус, потому что Y вниз
+        rect = rotated.get_rect(center=(draw_x, draw_y))
 
-        # Рисуем от центра
-        rect = self.sprite.get_rect(center=(screen_x, screen_y))
-        screen.blit(self.sprite, rect)
+        surface.blit(rotated, rect)
