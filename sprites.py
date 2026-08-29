@@ -77,4 +77,8 @@ def get_asteroid_sprites():
         "ast_mod01_s16": load_image("asteroids/small/asteroid_mod01_16px.png"),
         "ast_mod01_s32": load_image("asteroids/medium/asteroid_mod01_32px.png"),
         "ast_mod01_s64": load_image("asteroids/large/asteroid_mod01_64px.png"),
+        # Ресурсные (mod04) — для комнаты (1,1) и добычи
+        "ast_mod04_s16": load_image("asteroids/small/asteroid_mod04_16px.png"),
+        "ast_mod04_s32": load_image("asteroids/medium/asteroid_mod04_32px.png"),
+        "ast_mod04_s64": load_image("asteroids/large/asteroid_mod04_64px.png"),
     }
