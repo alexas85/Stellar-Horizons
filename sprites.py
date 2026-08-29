@@ -1,3 +1,4 @@
+# sprites.py
 import os
 import pygame
 import random
@@ -73,7 +74,7 @@ def get_ship_sprites(class_id):
 def get_asteroid_sprites():
     """Загружает спрайты астероидов разных размеров."""
     return {
-        "ast_mod01_s16": load_image("asteroids/small/ast_mod01_s16.png"),
-        "ast_mod01_s32": load_image("asteroids/medium/ast_mod01_s32.png"),
-        "ast_mod01_s64": load_image("asteroids/large/ast_mod01_s64.png"),
+        "ast_mod01_s16": load_image("asteroids/small/asteroid_mod01_16px.png"),
+        "ast_mod01_s32": load_image("asteroids/medium/asteroid_mod01_32px.png"),
+        "ast_mod01_s64": load_image("asteroids/large/asteroid_mod01_64px.png"),
     }

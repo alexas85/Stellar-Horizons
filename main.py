@@ -1,3 +1,4 @@
+# main.py
 import pygame
 import sys
 import os

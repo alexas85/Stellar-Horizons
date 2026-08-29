@@ -39,3 +39,14 @@ RESOURCE_ICONS = {
     "mineral": "assets/resources/res_mineral.png",
     "uranium": "assets/resources/res_uranium.png",
 }
+ASTEROID_TYPES = {
+    "normal": ["mod01", "mod02", "mod03"],
+    "resource": ["mod04", "mod05", "mod06"]
+}
+
+ASTEROID_SIZES = {
+    "small": 16,
+    "medium": 32,
+    "large": 64,
+    "extra_large": 128
+}
