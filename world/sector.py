@@ -6,6 +6,7 @@ from game_objects.static_ship import StaticShip
 from game_objects.static_planet import StaticPlanet
 from config import ROOM_WIDTH, ROOM_HEIGHT
 
+
 class Sector:
     def __init__(self, x, y):
         self.x = x
@@ -19,25 +20,24 @@ class Sector:
         self.asteroids = []
         self.objects = []
 
-        types = list(asteroid_sprites.keys())
-        if not types:
+        # asteroid_sprites теперь: { key: (Surface, size_px) }
+        items = list(asteroid_sprites.items())
+        if not items:
             self.is_generated = True
             return
 
         # --- СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ КОМНАТЫ (1, 1): хаотичные mod04 ---
         if self.x == 1 and self.y == 1:
-            # Выбираем только ключи mod04
-            mod04_keys = [k for k in types if "mod04" in k]
-            if not mod04_keys:
+            # Фильтруем только mod04
+            mod04_items = [item for item in items if "mod04" in item[0]]
+
+            if not mod04_items:
                 print("[WARN] Нет спрайтов mod04 для комнаты (1,1)")
             else:
-                # Хаотичный разброс по всей комнате
                 for _ in range(total_count):
-                    # Случайная позиция в пределах комнаты
                     ax = (self.x * ROOM_WIDTH) + random.randint(0, ROOM_WIDTH - 64)
                     ay = (self.y * ROOM_HEIGHT) + random.randint(0, ROOM_HEIGHT - 64)
 
-                    # Простая проверка на пересечение (чтобы не накладывать один на другой)
                     collision = False
                     for existing in self.asteroids:
                         if math.hypot(ax - existing.x, ay - existing.y) < 64:
@@ -45,8 +45,7 @@ class Sector:
                             break
 
                     if not collision:
-                        sprite_key = random.choice(mod04_keys)
-                        sprite = asteroid_sprites[sprite_key]
+                        sprite_key, (sprite, size_px) = random.choice(mod04_items)
                         rot_speed = random.uniform(-0.02, 0.02)
 
                         new_asteroid = Asteroid(
@@ -54,16 +53,17 @@ class Sector:
                             x=ax, y=ay,
                             angle=random.uniform(0, 2 * math.pi),
                             rotation_speed=rot_speed,
-                            orbit_center=None, orbit_radius=0, orbit_speed=0
+                            orbit_center=None,
+                            orbit_radius=0,
+                            orbit_speed=0,
+                            size_px=size_px,  # <-- Теперь берём реальный размер
+                            type_key=sprite_key  # <-- Сохраняем ключ для проверки mod04 в main.py
                         )
                         self.asteroids.append(new_asteroid)
 
-            # Обломки/планеты для (1,1) — если нужны, добавь здесь
-            # (сейчас ничего не добавляем, но можно по аналогии с (1,0))
-
             self.is_generated = True
             print(f"[DEBUG] Комната (1,1): сгенерировано {len(self.asteroids)} астероидов mod04")
-            return  # Завершаем метод, чтобы не выполнять обычный кластерный спавн
+            return
 
         # --- ОБЫЧНАЯ ЛОГИКА (все остальные комнаты) ---
         cluster_count = random.randint(6, 8)
@@ -92,23 +92,27 @@ class Sector:
 
                 collision = False
                 for existing in self.asteroids:
-                    if math.hypot(ax - existing.x, ay - existing.y) < 64:
+                    # Используем size_px самого астероида для более точной проверки,
+                    # но для простоты пока оставим фиксированный радиус отталкивания 64
+                    min_dist = max(existing.size_px // 2, 32)
+                    if math.hypot(ax - existing.x, ay - existing.y) < min_dist * 2:
                         collision = True
                         break
 
                 if not collision:
-                    ast_type = random.choice(types)
-                    sprite = asteroid_sprites.get(ast_type)
-                    if not sprite:
-                        continue
-
+                    sprite_key, (sprite, size_px) = random.choice(items)
                     rot_speed = random.uniform(-0.02, 0.02)
+
                     new_asteroid = Asteroid(
                         sprite=sprite,
                         x=ax, y=ay,
                         angle=random.uniform(0, 2 * math.pi),
                         rotation_speed=rot_speed,
-                        orbit_center=None, orbit_radius=0, orbit_speed=0
+                        orbit_center=None,
+                        orbit_radius=0,
+                        orbit_speed=0,
+                        size_px=size_px,
+                        type_key=sprite_key
                     )
                     self.asteroids.append(new_asteroid)
 
@@ -128,6 +132,7 @@ class Sector:
             self.objects.append(new_planet)
 
         self.is_generated = True
+
     def generate_belt(self, asteroid_sprites, inner_radius, outer_radius, counts, wreck_sprite=None,
                       planet_sprite=None):
         """Генерация пояса астероидов (для стартовой комнаты)."""
@@ -135,10 +140,15 @@ class Sector:
         center_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
 
         belt_asteroids = []
+
+        # counts: { "ast_mod01_s16": 10, ... }
         for sprite_key, count in counts.items():
-            sprite = asteroid_sprites.get(sprite_key)
-            if not sprite:
+            # Получаем кортеж (sprite, size)
+            data = asteroid_sprites.get(sprite_key)
+            if not data:
                 continue
+
+            sprite, size_px = data
 
             for _ in range(count):
                 dist = random.uniform(inner_radius, outer_radius)
@@ -155,14 +165,16 @@ class Sector:
                         rotation_speed=random.uniform(-0.05, 0.05),
                         orbit_center=(center_x, center_y),
                         orbit_radius=dist,
-                        orbit_speed=orbit_speed
+                        orbit_speed=orbit_speed,
+                        size_px=size_px,  # <-- Реальный размер
+                        type_key=sprite_key  # <-- Ключ для идентификации
                     )
                 )
 
         self.asteroids = belt_asteroids
         self.belt = belt_asteroids
 
-        # --- Логика для комнаты (1, 0) ---
+        # Логика для комнаты (1, 0)
         if self.x == 1 and self.y == 0:
             if wreck_sprite:
                 offset_from_edge = 400
@@ -181,7 +193,7 @@ class Sector:
                 new_planet = StaticPlanet(sprite=planet_sprite, x=planet_x, y=planet_y)
                 self.objects.append(new_planet)
 
-        # --- Планета в центре комнаты (0, -1) ---
+        # Планета в центре комнаты (0, -1)
         if planet_sprite and self.x == 0 and self.y == -1:
             planet_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2)
             planet_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2)

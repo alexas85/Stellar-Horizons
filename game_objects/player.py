@@ -4,14 +4,15 @@ from config import SHIP_ACCELERATION
 from game_objects.bullet import Bullet
 
 
-# Важно: убедитесь, что класс Bullet импортируется корректно.
-# Если Bullet находится в game_objects.bullet, раскомментируйте строку ниже:
-# from game_objects.bullet import Bullet
-
 class PlayerShip:
     def __init__(self, x, y, idle_sprite, movement_sprites):
         self.x = x
         self.y = y
+
+        # Скорости ДО обнуления (для физики удара)
+        self.last_vx = 0.0
+        self.last_vy = 0.0
+
         self.angle = 0
         self.velocity = pygame.math.Vector2(0, 0)
 
@@ -23,7 +24,6 @@ class PlayerShip:
         self.min_scale = 0.15
         self.landing_speed = 0.005
         self.landing_move_speed = 0.7
-
         self.landing_target = None
 
         # Физика вращения
@@ -37,13 +37,12 @@ class PlayerShip:
         self.movement_sprites = movement_sprites
         self.original_image = idle_sprite
 
-        # rect инициализируем по центру, чтобы сразу было корректно
+        # rect инициализируем по центру
         self.rect = self.idle_sprite.get_rect(center=(self.x, self.y))
 
         # Анимация двигателей
         self.animation_index = 0
         self.animation_timer = 0
-        self.animation_speed = 100
         self.is_thrusting = False
 
         # Выстрелы
@@ -51,16 +50,15 @@ class PlayerShip:
         self.fire_cooldown = 0
         self.cooldown_time = 250  # мс между выстрелами
 
-        # Инвентарь (создаём только если ещё нет)
-        if not hasattr(self, 'inventory'):
-            self.inventory = {
-                "metal": 1000,
-                "precious": 1000,
-                "crystal": 1000,
-                "energy": 1000,
-                "mineral": 1000,
-                "uranium": 1000
-            }
+        # Инвентарь
+        self.inventory = {
+            "metal": 0,
+            "precious": 0,
+            "crystal": 0,
+            "energy": 0,
+            "mineral": 0,
+            "uranium": 0
+        }
 
     def rotate(self, direction):
         target_angular_velocity = direction * self.max_angular_velocity
@@ -90,7 +88,6 @@ class PlayerShip:
         if planet is not None and hasattr(planet, 'x') and hasattr(planet, 'y'):
             self.landing_target = pygame.math.Vector2(planet.x, planet.y)
         else:
-            # Фолбэк: центр комнаты на планете
             from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
             self.landing_target = pygame.math.Vector2(
                 PLANET_ROOM_WIDTH // 2,
@@ -108,7 +105,6 @@ class PlayerShip:
         self.is_thrusting = False
         self.landing_target = None
         self.target_scale = 1.0
-        # Обновляем rect после телепортации
         self._update_rect()
 
     def shoot(self, bullet_sprite):
@@ -130,6 +126,10 @@ class PlayerShip:
         return new_bullet
 
     def update(self):
+        # Сначала сохраняем текущую скорость как «последнюю» — это критично для физики удара
+        self.last_vx = float(self.velocity.x)
+        self.last_vy = float(self.velocity.y)
+
         # 1. Посадка
         if self.is_landing and not self.on_planet_surface:
             if self.landing_target is None:
@@ -159,7 +159,7 @@ class PlayerShip:
                 t = self.landing_progress
                 self.target_scale = max(self.min_scale, 1.0 - t * (1.0 - self.min_scale))
 
-            self._update_rect()  # Важно: обновляем rect с учётом масштаба
+            self._update_rect()
             return
 
         # 2. На планете
@@ -210,12 +210,9 @@ class PlayerShip:
                 self.bullets.remove(bullet)
 
     def _update_rect(self):
-        """Обновляет rect по центру (x, y) и с учётом текущего масштаба."""
-        # Получаем размер текущего изображения (учитывая масштаб, если нужно)
         w = self.original_image.get_width()
         h = self.original_image.get_height()
 
-        # Если корабль уменьшается (посадка), используем target_scale для расчёта размера rect
         if self.is_landing and not self.on_planet_surface:
             w = int(w * self.target_scale)
             h = int(h * self.target_scale)
@@ -228,7 +225,6 @@ class PlayerShip:
         draw_x = self.x - cam_x
         draw_y = self.y - cam_y
 
-        # Посадка: уменьшаем и вращаем
         if self.is_landing and not self.on_planet_surface:
             scale = self.target_scale
             w = int(self.original_image.get_width() * scale)
@@ -239,7 +235,6 @@ class PlayerShip:
             surface.blit(rotated, rect)
             return
 
-        # Обычный режим: просто вращаем
         rotated = pygame.transform.rotate(self.original_image, -self.angle)
         rect = rotated.get_rect(center=(draw_x, draw_y))
         surface.blit(rotated, rect)

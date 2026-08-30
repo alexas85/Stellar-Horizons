@@ -1,8 +1,8 @@
-# main.py
 import pygame
 import sys
 import os
 import math
+import random
 from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
 from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
 from game_objects.static_ship import StaticShip
@@ -15,40 +15,24 @@ from game_objects.bullet import Bullet
 
 
 def draw_hud(screen, player, font, resource_surfaces, start_x, y_offset=20):
-    """
-    Рисует HUD строго слева направо.
-    Размер иконок: 15x15.
-    Отступ между иконками: 60px (запас для цифр).
-    """
     x = start_x
     y = y_offset
-
-    # Жесткий порядок ресурсов
     resource_order = ["metal", "precious", "crystal", "energy", "mineral", "uranium"]
 
     for name in resource_order:
         count = player.inventory.get(name, 0)
-
         if name not in resource_surfaces:
             continue
 
         icon = resource_surfaces[name]
-
-        # 1. Гарантированно приводим иконку к 15x15
         if icon.get_width() != 15 or icon.get_height() != 15:
             icon = pygame.transform.smoothscale(icon, (15, 15))
 
-        # 2. Рисуем иконку
         screen.blit(icon, (x, y))
-
-        # 3. Рисуем текст (количество)
         text_x = x + icon.get_width() + 4
         text_y = y
-
         text_surf = font.render(str(count), True, (255, 255, 255))
         screen.blit(text_surf, (text_x, text_y))
-
-        # 4. Сдвигаем X для следующей иконки
         x += 60
 
 
@@ -58,12 +42,10 @@ def main():
     pygame.display.set_caption('Stellar Horizons - Asteroid Belt')
     clock = pygame.time.Clock()
 
-    # 1. Загрузка ассетов
     backgrounds = get_backgrounds()
     idle_sprite, movement_sprites = get_ship_sprites(4)
     asteroid_sprites = get_asteroid_sprites()
 
-    # --- ЗАГРУЗКА СПРАЙТА КОРАБЛЯ-ОБЛОМКА ---
     wreck_path = "assets/ships/class_3/ship_destroyer_destroyer-01_128px_idle.png"
     wreck_sprite = None
     try:
@@ -71,9 +53,7 @@ def main():
         print(f"[SUCCESS] Спрайт корабля загружен: {wreck_path}")
     except FileNotFoundError:
         print(f"[ERROR] Не удалось найти спрайт корабля по пути: {wreck_path}")
-        print("Корабль не появится в комнате (1, 0). Проверьте путь к файлу.")
 
-    # --- ЗАГРУЗКА СПРАЙТА ПЛАНЕТЫ ---
     planet_path = "assets/planets/habitable/planet_lariona_512px.png"
     planet_sprite = None
     try:
@@ -81,21 +61,17 @@ def main():
         print(f"[SUCCESS] Спрайт планеты загружен: {planet_path}")
     except FileNotFoundError:
         print(f"[ERROR] Не удалось найти спрайт планеты: {planet_path}")
-        print("Планета не появится в комнате. Проверьте путь к файлу.")
 
-    # --- ЗАГРУЗКА СПРАЙТА ВЫСТРЕЛА ---
     bullet_path = "assets/projectiles/shot_16px_mod1.png"
     bullet_sprite = None
     try:
         bullet_sprite = pygame.image.load(bullet_path).convert_alpha()
         print(f"[SUCCESS] Спрайт выстрела загружен: {bullet_path}")
     except FileNotFoundError:
-        print(f"[WARNING] Не удалось найти выстрел: {bullet_path}. Используется заглушка.")
+        print("[WARNING] Не удалось найти выстрел. Используется заглушка.")
         bullet_sprite = pygame.Surface((16, 16))
-        bullet_sprite.fill((255, 0, 0))  # Красная точка вместо спрайта
-    # ----------------------------------------
+        bullet_sprite.fill((255, 0, 0))
 
-    # --- ЗАГРУЗКА ИКОНОК РЕСУРСОВ ---
     resource_surfaces = {}
     for name, path in RESOURCE_ICONS.items():
         try:
@@ -103,19 +79,15 @@ def main():
                 surf = pygame.image.load(path).convert_alpha()
                 surf = pygame.transform.smoothscale(surf, (24, 24))
                 resource_surfaces[name] = surf
-                print(f"[SUCCESS] Иконка загружена: {name} -> {path}")
             else:
                 raise FileNotFoundError
-        except Exception as e:
-            print(f"[ERROR] Не удалось загрузить иконку {name}: {e}")
+        except Exception:
             placeholder = pygame.Surface((24, 24))
             placeholder.fill((150, 150, 150))
             resource_surfaces[name] = placeholder
-    # ----------------------------------------
 
     font_hud = pygame.font.SysFont('Arial', 15, bold=False)
 
-    # 2. Создание объектов
     player = PlayerShip(
         x=ROOM_WIDTH // 2,
         y=ROOM_HEIGHT // 2,
@@ -123,33 +95,20 @@ def main():
         movement_sprites=movement_sprites
     )
 
-    # ВАЖНО: Если в классе PlayerShip нет self.inventory в __init__,
-    if not hasattr(player, 'inventory'):
-        player.inventory = {
-            "metal": 0,
-            "precious": 0,
-            "crystal": 0,
-            "energy": 0,
-            "mineral": 0,
-            "uranium": 0
-        }
-
     generator = WorldGenerator()
     camera = pygame.Rect(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT)
     running = True
 
     trigger_distance_x = ROOM_WIDTH - 50
     trigger_distance_y = ROOM_HEIGHT - 50
-
     last_space_pos = (player.x, player.y)
+    player_mass = 64.0  # масса корабля
 
     while running:
-        # --- Обработка событий ---
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-        # --- Управление ---
         keys = pygame.key.get_pressed()
 
         # Вход на планету (E)
@@ -190,7 +149,6 @@ def main():
                 player.accelerate()
 
         # СТРЕЛЬБА (Пробел)
-        # Вызываем метод shoot у игрока, передавая спрайт пули
         if keys[pygame.K_SPACE]:
             player.shoot(bullet_sprite)
 
@@ -233,19 +191,68 @@ def main():
             current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
                                                   planet_sprite=planet_sprite)
 
-        # --- ЛОГИКА ДОБЫЧИ РЕСУРСОВ (Столкновение с астероидами) ---
+        # --- ЛОГИКА СТОЛКНОВЕНИЙ С КОРРЕКЦИЕЙ ПОЗИЦИИ ---
         if current_sector and current_sector.asteroids:
             for asteroid in current_sector.asteroids[:]:
-                if hasattr(asteroid, 'rect'):
-                    player_rect = player.rect.copy()
-                    player_rect.center = (player.x, player.y)
+                if not hasattr(asteroid, 'rect'):
+                    continue
 
-                    if player_rect.colliderect(asteroid.rect):
+                # Используем rect игрока, который уже обновлён в player.update()
+                if player.rect.colliderect(asteroid.rect):
+                    is_mod04 = asteroid.type_key.startswith("ast_mod04")
+
+                    # Вычисляем нормаль столкновения (направление, откуда пришёл игрок)
+                    dx = player.x - asteroid.x
+                    dy = player.y - asteroid.y
+                    dist = math.hypot(dx, dy)
+                    if dist == 0:
+                        continue  # на всякий случай
+                    nx = dx / dist
+                    ny = dy / dist
+
+                    # Радиусы для простой коррекции (примерно половина размера)
+                    player_radius = max(player.rect.width, player.rect.height) / 2.0
+                    ast_radius = max(asteroid.rect.width, asteroid.rect.height) / 2.0
+                    min_dist = player_radius + ast_radius
+
+                    # Если они пересекаются, выталкиваем игрока наружу вдоль нормали
+                    overlap = min_dist - dist
+                    if overlap > 0:
+                        push_x = nx * overlap
+                        push_y = ny * overlap
+                        player.x += push_x
+                        player.y += push_y
+                        # Пересчитаем rect после коррекции позиции
+                        player._update_rect()
+
+                    if is_mod04:
+                        # Корабль останавливается полностью
+                        player.velocity = pygame.math.Vector2(0, 0)
+                        print(f"[COLLISION] Удар о mod04! Корабль остановлен. Размер: {asteroid.size_px}px")
+
+                        # Физика отскока астероида (импульс передаётся астероиду)
+                        asteroid_mass = float(asteroid.size_px)
+                        if asteroid_mass < 1.0:
+                            asteroid_mass = 1.0
+
+                        momentum_x = player.last_vx * player_mass
+                        momentum_y = player.last_vy * player_mass
+
+                        if abs(momentum_x) < 0.01 and abs(momentum_y) < 0.01:
+                            # Маленький случайный толчок, чтобы не залипали
+                            asteroid.apply_knockback(random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5))
+                        else:
+                            push_x = momentum_x / asteroid_mass
+                            push_y = momentum_y / asteroid_mass
+                            asteroid.apply_knockback(push_x, push_y)
+
+                        continue
+                    else:
+                        # Обычная добыча ресурсов: удаляем астероид, добавляем металл
                         player.inventory["metal"] += 1
                         print(f"Добыт металл! Всего: {player.inventory['metal']}")
                         current_sector.asteroids.remove(asteroid)
                         break
-        # ------------------------------------------------------------
 
         # --- Отрисовка ---
         if player.on_planet_surface:
@@ -276,7 +283,6 @@ def main():
             for obj in all_objects:
                 if isinstance(obj, list):
                     continue
-
                 if hasattr(obj, 'update'):
                     obj.update()
 
@@ -293,20 +299,17 @@ def main():
                     else:
                         obj.draw(screen, camera)
 
- 
-            # --- ОТРИСОВКА И ОБНОВЛЕНИЕ ПУЛЬ ---
+            # Отрисовка пуль
             for bullet in player.bullets[:]:
                 bullet.update()
-                bullet.draw(screen, camera)  # <-- теперь пуля сама знает про поворот и камеру
+                bullet.draw(screen, camera)
                 if not bullet.is_active():
                     player.bullets.remove(bullet)
-            # ------------------------------------
 
             player.draw(screen, camera.topleft)
 
-        # --- ОТЛАДКА: Вывод информации на экран ---
+        # --- ОТЛАДКА (текст поверх экрана) ---
         font_debug = pygame.font.SysFont('Arial', 16)
-
         if not player.on_planet_surface:
             rx = int(player.x // ROOM_WIDTH)
             ry = int(player.y // ROOM_HEIGHT)
@@ -329,7 +332,7 @@ def main():
         text_surf = font_debug.render(info_text, True, (255, 255, 255))
         screen.blit(text_surf, (10, 10))
 
-        # --- ВИЗУАЛИЗАЦИЯ ГРАНИЦ КОМНАТ ---
+        # Визуализация границ комнат (для отладки)
         if not player.on_planet_surface:
             for key, sector in generator.sectors.items():
                 sx, sy = key
@@ -341,7 +344,7 @@ def main():
                     color = (0, 255, 0) if sector.is_generated else (255, 0, 0)
                     pygame.draw.rect(screen, color, draw_rect, 2)
 
-        # --- ОТРИСОВКА HUD (РЕСУРСЫ) ---
+        # --- HUD (ресурсы) ---
         hud_start_x = 10
         draw_hud(
             screen=screen,
