@@ -1,8 +1,10 @@
+# main.py
 import pygame
 import sys
 import os
 import math
 import random
+
 from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
 from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
 from game_objects.static_ship import StaticShip
@@ -87,6 +89,7 @@ def main():
             resource_surfaces[name] = placeholder
 
     font_hud = pygame.font.SysFont('Arial', 15, bold=False)
+    font_debug = pygame.font.SysFont('Arial', 16)
 
     player = PlayerShip(
         x=ROOM_WIDTH // 2,
@@ -102,9 +105,10 @@ def main():
     trigger_distance_x = ROOM_WIDTH - 50
     trigger_distance_y = ROOM_HEIGHT - 50
     last_space_pos = (player.x, player.y)
-    player_mass = 64.0  # масса корабля
+    player_mass = 64.0  # Масса корабля для расчета импульса
 
     while running:
+        # 1. Обработка событий
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -152,8 +156,70 @@ def main():
         if keys[pygame.K_SPACE]:
             player.shoot(bullet_sprite)
 
-        # --- Логика игры ---
-        player.update()
+        # --- ЛОГИКА ИГРЫ ---
+
+        # Определение текущей комнаты и подготовка списка объектов для коллизий
+        room_x = 0
+        room_y = 0
+        local_x = 0
+        local_y = 0
+        current_sector = None
+        check_objects = []
+
+        if not player.on_planet_surface:
+            room_x = int(player.x // ROOM_WIDTH)
+            room_y = int(player.y // ROOM_HEIGHT)
+            local_x = player.x % ROOM_WIDTH
+            local_y = player.y % ROOM_HEIGHT
+
+            # Предзагрузка соседей
+            should_preload = False
+            if (local_x < trigger_distance_x or local_x > ROOM_WIDTH - trigger_distance_x or
+                    local_y < trigger_distance_y or local_y > ROOM_HEIGHT - trigger_distance_y):
+                should_preload = True
+
+            if should_preload:
+                generator.preload_neighbors(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
+                                            planet_sprite=planet_sprite)
+
+            current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
+                                                  planet_sprite=planet_sprite)
+
+            # Формируем список объектов для проверки коллизий (только астероиды в текущей комнате)
+            if current_sector and current_sector.asteroids:
+                check_objects = current_sector.asteroids
+
+        # ВАЖНО: Вызываем update игрока, передавая список объектов.
+        # Функция вернет объект астероида, если столкновение произошло ДО движения.
+        hit_asteroid = player.update(world_objects=check_objects)
+
+        # Обработка физики удара, если столкновение было предсказано в player.py
+        if hit_asteroid:
+            is_mod04 = hit_asteroid.type_key.startswith("ast_mod04")
+
+            if is_mod04:
+                print("[COLLISION] Удар о mod04! Корабль остановлен.")
+
+                # Расчет импульса
+                asteroid_mass = float(hit_asteroid.size_px)
+                if asteroid_mass < 1.0:
+                    asteroid_mass = 1.0
+
+                momentum_x = player.last_vx * player_mass
+                momentum_y = player.last_vy * player_mass
+
+                if abs(momentum_x) < 0.01 and abs(momentum_y) < 0.01:
+                    # Маленький случайный толчок, чтобы объекты не залипали
+                    hit_asteroid.apply_knockback(random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5))
+                else:
+                    push_x = momentum_x / asteroid_mass
+                    push_y = momentum_y / asteroid_mass
+                    hit_asteroid.apply_knockback(push_x, push_y)
+            else:
+                # Обычная добыча: удаляем астероид, добавляем металл
+                player.inventory["metal"] += 1
+                if hit_asteroid in current_sector.asteroids:
+                    current_sector.asteroids.remove(hit_asteroid)
 
         # Движение камеры
         if player.on_planet_surface:
@@ -165,96 +231,7 @@ def main():
             target_y = player.y - CAMERA_HEIGHT // 2
             camera.topleft = (target_x, target_y)
 
-        # Определение текущей комнаты (только для космоса)
-        room_x = 0
-        room_y = 0
-        local_x = 0
-        local_y = 0
-
-        if not player.on_planet_surface:
-            room_x = int(player.x // ROOM_WIDTH)
-            room_y = int(player.y // ROOM_HEIGHT)
-            local_x = player.x % ROOM_WIDTH
-            local_y = player.y % ROOM_HEIGHT
-
-            should_preload = False
-            if (local_x < trigger_distance_x or local_x > ROOM_WIDTH - trigger_distance_x or
-                    local_y < trigger_distance_y or local_y > ROOM_HEIGHT - trigger_distance_y):
-                should_preload = True
-
-            if should_preload:
-                generator.preload_neighbors(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
-                                            planet_sprite=planet_sprite)
-
-        current_sector = None
-        if not player.on_planet_surface:
-            current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
-                                                  planet_sprite=planet_sprite)
-
-        # --- ЛОГИКА СТОЛКНОВЕНИЙ С КОРРЕКЦИЕЙ ПОЗИЦИИ ---
-        if current_sector and current_sector.asteroids:
-            for asteroid in current_sector.asteroids[:]:
-                if not hasattr(asteroid, 'rect'):
-                    continue
-
-                # Используем rect игрока, который уже обновлён в player.update()
-                if player.rect.colliderect(asteroid.rect):
-                    is_mod04 = asteroid.type_key.startswith("ast_mod04")
-
-                    # Вычисляем нормаль столкновения (направление, откуда пришёл игрок)
-                    dx = player.x - asteroid.x
-                    dy = player.y - asteroid.y
-                    dist = math.hypot(dx, dy)
-                    if dist == 0:
-                        continue  # на всякий случай
-                    nx = dx / dist
-                    ny = dy / dist
-
-                    # Радиусы для простой коррекции (примерно половина размера)
-                    player_radius = max(player.rect.width, player.rect.height) / 2.0
-                    ast_radius = max(asteroid.rect.width, asteroid.rect.height) / 2.0
-                    min_dist = player_radius + ast_radius
-
-                    # Если они пересекаются, выталкиваем игрока наружу вдоль нормали
-                    overlap = min_dist - dist
-                    if overlap > 0:
-                        push_x = nx * overlap
-                        push_y = ny * overlap
-                        player.x += push_x
-                        player.y += push_y
-                        # Пересчитаем rect после коррекции позиции
-                        player._update_rect()
-
-                    if is_mod04:
-                        # Корабль останавливается полностью
-                        player.velocity = pygame.math.Vector2(0, 0)
-                        print(f"[COLLISION] Удар о mod04! Корабль остановлен. Размер: {asteroid.size_px}px")
-
-                        # Физика отскока астероида (импульс передаётся астероиду)
-                        asteroid_mass = float(asteroid.size_px)
-                        if asteroid_mass < 1.0:
-                            asteroid_mass = 1.0
-
-                        momentum_x = player.last_vx * player_mass
-                        momentum_y = player.last_vy * player_mass
-
-                        if abs(momentum_x) < 0.01 and abs(momentum_y) < 0.01:
-                            # Маленький случайный толчок, чтобы не залипали
-                            asteroid.apply_knockback(random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5))
-                        else:
-                            push_x = momentum_x / asteroid_mass
-                            push_y = momentum_y / asteroid_mass
-                            asteroid.apply_knockback(push_x, push_y)
-
-                        continue
-                    else:
-                        # Обычная добыча ресурсов: удаляем астероид, добавляем металл
-                        player.inventory["metal"] += 1
-                        print(f"Добыт металл! Всего: {player.inventory['metal']}")
-                        current_sector.asteroids.remove(asteroid)
-                        break
-
-        # --- Отрисовка ---
+        # --- ОТРИСОВКА ---
         if player.on_planet_surface:
             screen.fill((135, 206, 235))  # Sky Blue
             player.draw(screen, camera.topleft)
@@ -273,6 +250,7 @@ def main():
                     for y in range(-1, 2):
                         screen.blit(stars, (offset_x + x * w, offset_y + y * h))
 
+            # Сбор всех объектов для отрисовки
             all_objects = []
             if current_sector:
                 if hasattr(current_sector, 'asteroids') and current_sector.asteroids:
@@ -280,12 +258,16 @@ def main():
                 if hasattr(current_sector, 'objects') and current_sector.objects:
                     all_objects.extend(current_sector.objects)
 
+            # Отрисовка объектов мира
             for obj in all_objects:
                 if isinstance(obj, list):
                     continue
+
+                # Обновление логики объекта (если есть)
                 if hasattr(obj, 'update'):
                     obj.update()
 
+                # Подсветка при наведении
                 show_highlight = False
                 if (hasattr(obj, 'x') and hasattr(obj, 'y') and hasattr(obj, 'highlight_radius')):
                     dist_sq = (obj.x - player.x) ** 2 + (obj.y - player.y) ** 2
@@ -293,23 +275,21 @@ def main():
                     if dist_sq <= radius_sq:
                         show_highlight = True
 
+                # Отрисовка
                 if hasattr(obj, 'draw'):
                     if isinstance(obj, (StaticShip, StaticPlanet)):
                         obj.draw(screen, camera, show_highlight=show_highlight)
                     else:
                         obj.draw(screen, camera)
 
-            # Отрисовка пуль
-            for bullet in player.bullets[:]:
-                bullet.update()
+            # Отрисовка пуль (логика обновления уже внутри player.update, здесь только отрисовка)
+            for bullet in player.bullets:
                 bullet.draw(screen, camera)
-                if not bullet.is_active():
-                    player.bullets.remove(bullet)
 
+            # Отрисовка игрока
             player.draw(screen, camera.topleft)
 
         # --- ОТЛАДКА (текст поверх экрана) ---
-        font_debug = pygame.font.SysFont('Arial', 16)
         if not player.on_planet_surface:
             rx = int(player.x // ROOM_WIDTH)
             ry = int(player.y // ROOM_HEIGHT)
