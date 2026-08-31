@@ -4,7 +4,7 @@ import pygame
 import random
 
 # --- НАСТРОЙКА ОТЛАДКИ ---
-DEBUG_HITBOX = False
+DEBUG_HITBOX = True
 
 # --- НАСТРОЙКИ ФИЗИКИ ---
 MAX_ASTEROID_SPEED = 3.0  # Максимальная скорость астероида (подбирай под баланс)
@@ -56,6 +56,12 @@ class Asteroid:
         self.hitbox_offset_x = -2
         self.hitbox_offset_y = -1
 
+        # --- НОВЫЕ ПОЛЯ ДЛЯ МЕХАНИКИ СБОРА ---
+        self.is_collecting = False          # идёт ли сейчас сбор этого астероида
+        self.collection_start_time = 0.0   # время начала сбора (в мс)
+        self.collected_resources = None    # словарь с ресурсами, которые будут начислены (или None)
+        self.marked_for_removal = False     # флаг: объект нужно удалить из сектора
+
     def apply_knockback(self, push_x, push_y):
         """Добавляет импульс к астероиду (для отскока)."""
         self.velocity_x += push_x
@@ -86,6 +92,19 @@ class Asteroid:
                 self.velocity_y *= ratio
 
         self.angle += self.rotation_speed
+
+        # --- ЛОГИКА СБОРА РЕСУРСОВ ---
+        if self.is_collecting:
+            current_time = pygame.time.get_ticks()
+            elapsed = current_time - self.collection_start_time
+
+            # Сбор длится 3000 мс (3 секунды)
+            if elapsed >= 3000:
+                # Сбор завершён: помечаем на удаление, сбрасываем флаги
+                self.marked_for_removal = True
+                self.is_collecting = False
+                self.collection_start_time = 0.0
+            # Если сбор идёт — ничего не делаем, ждём таймера
 
     @property
     def rect(self):

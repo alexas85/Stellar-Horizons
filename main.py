@@ -27,6 +27,7 @@ def draw_hud(screen, player, font, resource_surfaces, start_x, y_offset=20):
             continue
 
         icon = resource_surfaces[name]
+        # Масштабируем иконку до 15x15 если нужно
         if icon.get_width() != 15 or icon.get_height() != 15:
             icon = pygame.transform.smoothscale(icon, (15, 15))
 
@@ -107,6 +108,10 @@ def main():
     last_space_pos = (player.x, player.y)
     player_mass = 64.0  # Масса корабля для расчёта импульса
 
+    # Константа дистанции подсветки (как ты просил)
+    INTERACTION_MAX_DIST = 250
+    INTERACTION_MAX_DIST_SQ = INTERACTION_MAX_DIST ** 2
+
     while running:
         # 1. Обработка событий
         for event in pygame.event.get():
@@ -115,15 +120,19 @@ def main():
 
         keys = pygame.key.get_pressed()
 
-        # Вход на планету (E)
-        if keys[pygame.K_e] and not player.is_landing and not player.on_planet_surface:
+        # --- ЛОГИКА КНОПКИ ДЕЙСТВИЯ (E) ---
+        # Ищем объект для взаимодействия ТОЛЬКО если кнопка зажата и мы не на планете/в посадке
+        interaction_target = None
+
+        if (not player.on_planet_surface and not player.is_landing and keys[pygame.K_e]):
+
             room_x = int(player.x // ROOM_WIDTH)
             room_y = int(player.y // ROOM_HEIGHT)
-
-            sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
-                                          planet_sprite=planet_sprite)
+            sector = generator.get_sector(room_x, room_y, asteroid_sprites,
+                                          wreck_sprite=wreck_sprite, planet_sprite=planet_sprite)
 
             near_planet = None
+            # 1. Приоритет: Планета
             if sector and sector.objects:
                 for obj in sector.objects:
                     if isinstance(obj, StaticPlanet):
@@ -134,11 +143,32 @@ def main():
                             break
 
             if near_planet:
+                # Выполняем действие: посадка
                 last_space_pos = (player.x, player.y)
                 player.start_landing(near_planet)
                 print("[ACTION] Начало посадки на планету")
+                # При посадке цель для линии не нужна (или можно оставить планету, но обычно линию убирают)
+                interaction_target = near_planet
+            else:
+                # 2. Если планеты нет: ищем астероид для добычи
+                closest_asteroid = None
+                closest_dist = float('inf')
 
-        # Выход с планеты (Q)
+                if sector and sector.asteroids:
+                    for ast in sector.asteroids:
+                        dist_sq = (ast.x - player.x) ** 2 + (ast.y - player.y) ** 2
+                        # Проверяем дистанцию 250px
+                        if dist_sq <= INTERACTION_MAX_DIST_SQ and dist_sq < closest_dist:
+                            closest_dist = dist_sq
+                            closest_asteroid = ast
+
+                if closest_asteroid:
+                    started = player.try_start_collection(closest_asteroid)
+                    if started:
+                        print("[ACTION] Начата добыча с астероида")
+                    interaction_target = closest_asteroid
+
+        # --- КНОПКА ОТКАТА (Q) ---
         if keys[pygame.K_q] and player.on_planet_surface:
             player.exit_planet(*last_space_pos)
             print("[ACTION] Выход в космос")
@@ -156,7 +186,7 @@ def main():
         if keys[pygame.K_SPACE]:
             player.shoot(bullet_sprite)
 
-        # --- ЛОГИКА ИГРЫ ---
+        # --- ЛОГИКА ИГРЫ (физика, коллизии, генерация) ---
 
         room_x = 0
         room_y = 0
@@ -190,30 +220,34 @@ def main():
         hit_asteroid = player.update(world_objects=check_objects)
 
         if hit_asteroid:
-            # Проверяем, является ли астероид «прочным» (mod04) — тогда он отскакивает
             is_mod04 = hit_asteroid.type_key.startswith("ast_mod04")
 
             if is_mod04:
-                # Физика отскока
                 momentum_x = player.last_vx * player_mass
                 momentum_y = player.last_vy * player_mass
-                bounce_factor = 0.1  # <--- МЕНЯТЬ ЗДЕСЬ: <1 слабее, >1 сильнее
+                bounce_factor = 0.1
+
                 if abs(momentum_x) < 0.01 and abs(momentum_y) < 0.01:
-                    # Если корабль почти стоял — лёгкий случайный толчок
-                    hit_asteroid.apply_knockback(random.uniform(-0.5, 0.5) * bounce_factor, random.uniform(-0.5, 0.5) * bounce_factor)
+                    hit_asteroid.apply_knockback(random.uniform(-0.5, 0.5) * bounce_factor,
+                                                 random.uniform(-0.5, 0.5) * bounce_factor)
                 else:
                     push_x = momentum_x / hit_asteroid.mass
                     push_y = momentum_y / hit_asteroid.mass
                     hit_asteroid.apply_knockback(push_x, push_y)
 
-                recoil_factor = 0.2  # 0.0 = вообще нет отдачи, 1.0 = как сейчас
+                recoil_factor = 0.2
                 player.velocity.x -= push_x * (hit_asteroid.mass / player_mass) * recoil_factor
                 player.velocity.y -= push_y * (hit_asteroid.mass / player_mass) * recoil_factor
             else:
-                # Обычная добыча: удаляем астероид, добавляем металл
                 player.inventory["metal"] += 1
                 if current_sector and hit_asteroid in current_sector.asteroids:
                     current_sector.asteroids.remove(hit_asteroid)
+
+        # Очистка помеченных астероидов
+        if current_sector and current_sector.asteroids:
+            current_sector.asteroids = [
+                ast for ast in current_sector.asteroids if not ast.marked_for_removal
+            ]
 
         # Движение камеры
         if player.on_planet_surface:
@@ -228,7 +262,8 @@ def main():
         # --- ОТРИСОВКА ---
         if player.on_planet_surface:
             screen.fill((135, 206, 235))  # Sky Blue
-            player.draw(screen, camera.topleft)
+            # На планете линию не рисуем (или рисуем только если нужно)
+            player.draw(screen, camera.topleft, interaction_target=None)
         else:
             screen.fill((0, 0, 20))  # Чёрный космос
 
@@ -274,7 +309,9 @@ def main():
             for bullet in player.bullets:
                 bullet.draw(screen, camera)
 
-            player.draw(screen, camera.topleft)
+            # ОТРИСОВКА ИГРОКА С ЛИНИЕЙ
+            # Передаем interaction_target, чтобы draw() мог нарисовать линию
+            player.draw(screen, camera.topleft, interaction_target=interaction_target)
 
         # --- ОТЛАДКА (текст поверх экрана) ---
         if not player.on_planet_surface:
@@ -331,3 +368,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

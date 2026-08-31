@@ -1,6 +1,7 @@
 # game_objects/player.py
 import pygame
 import math
+import random
 from config import SHIP_ACCELERATION
 from game_objects.bullet import Bullet
 
@@ -61,6 +62,11 @@ class PlayerShip:
             "uranium": 0
         }
 
+        # --- НОВЫЕ ПОЛЯ ДЛЯ МЕХАНИКИ СБОРА ---
+        self.collecting_asteroid = None      # ссылка на астероид, который сейчас добываем
+        self.collection_start_time = 0.0    # время начала текущего сбора (в мс)
+        self.is_collecting = False           # флаг: игрок прямо сейчас добывает ресурс
+
     def rotate(self, direction):
         """Плавное вращение корабля"""
         target_angular_velocity = direction * self.max_angular_velocity
@@ -110,7 +116,19 @@ class PlayerShip:
         self.is_thrusting = False
         self.landing_target = None
         self.target_scale = 1.0
+        # Сброс состояния сбора при выходе с планеты
+        self.stop_collection()
         self._update_rect()
+
+    def stop_collection(self):
+        """Принудительно останавливает сбор (например, при уходе с планеты)"""
+        if self.collecting_asteroid is not None:
+            # Сбрасываем флаги у астероида
+            self.collecting_asteroid.is_collecting = False
+            self.collecting_asteroid.collection_start_time = 0.0
+            self.collecting_asteroid = None
+            self.is_collecting = False
+            self.collection_start_time = 0.0
 
     def shoot(self, bullet_sprite):
         current_time = pygame.time.get_ticks()
@@ -145,6 +163,40 @@ class PlayerShip:
         # Используем встроенный метод астероида
         obj.apply_knockback(dx * force, dy * force)
 
+    def try_start_collection(self, asteroid):
+        """
+        Пытается начать сбор с астероида.
+        Возвращает True, если сбор начался, иначе False.
+        Условия: тип mod04, низкая скорость, дистанция ≤ 50px, не на планете, не в посадке.
+        """
+        # Не начинаем сбор, если уже что-то добываем или находимся на планете/в посадке
+        if self.is_collecting or self.on_planet_surface or self.is_landing:
+            return False
+
+        # Проверка типа астероида (только mod04)
+        if not asteroid.type_key.startswith("ast_mod04"):
+            return False
+
+        # Проверка дистанции
+        dist_sq = (asteroid.x - self.x) ** 2 + (asteroid.y - self.y) ** 2
+        max_dist = 250
+        if dist_sq > max_dist ** 2:
+            return False
+
+        # Проверка скорости астероида: должна быть почти нулевой
+        speed = math.hypot(asteroid.velocity_x, asteroid.velocity_y)
+        if speed > 0.5:
+            return False
+
+        # Всё ок — начинаем сбор
+        self.collecting_asteroid = asteroid
+        self.is_collecting = True
+        self.collection_start_time = pygame.time.get_ticks()
+        asteroid.is_collecting = True
+        asteroid.collection_start_time = self.collection_start_time
+
+        return True
+
     def update(self, world_objects=None):
         """
         Основной цикл обновления физики.
@@ -172,6 +224,8 @@ class PlayerShip:
                 self.on_planet_surface = True
                 self.target_scale = self.min_scale
                 self.landing_target = None
+                # Сброс сбора при касании поверхности
+                self.stop_collection()
             else:
                 direction.scale_to_length(self.landing_move_speed)
                 self.x += direction.x
@@ -197,6 +251,29 @@ class PlayerShip:
             self._update_rect()
             self._update_animation_and_bullets()
             return None
+
+        # --- ОБРАБОТКА СБОРА РЕСУРСОВ (между состояниями) ---
+        if self.is_collecting and self.collecting_asteroid is not None:
+            asteroid = self.collecting_asteroid
+            current_time = pygame.time.get_ticks()
+            elapsed = current_time - self.collection_start_time
+
+            # Если астероид помечен на удаление — начисляем ресурсы и сбрасываем сбор
+            if asteroid.marked_for_removal:
+                # Начисляем ресурсы
+                self.inventory["metal"] += random.randint(5, 16)
+                self.inventory["mineral"] += random.randint(0, 3)
+                # Можно добавить другие типы ресурсов по желанию
+
+                # Сбрасываем состояние сбора
+                self.stop_collection()
+                return None
+
+            # Проверка: если игрок слишком далеко ушёл — прерываем сбор
+            dist_sq = (asteroid.x - self.x) ** 2 + (asteroid.y - self.y) ** 2
+            max_dist = 60  # чуть больше, чем при старте
+            if dist_sq > max_dist ** 2:
+                self.stop_collection()
 
         # --- ЛОГИКА КОСМОСА ---
 
@@ -249,6 +326,9 @@ class PlayerShip:
 
             # 3. Применяем импульс к астероиду
             self.apply_impulse_to(hit_object, 12.0)
+
+            # Если в момент удара мы добывали ресурс — прерываем сбор
+            self.stop_collection()
 
             self._update_rect()
             self._update_animation_and_bullets()
@@ -305,11 +385,12 @@ class PlayerShip:
         self.rect = pygame.Rect(0, 0, w, h)
         self.rect.center = (self.x, self.y)
 
-    def draw(self, surface, camera_offset):
+    def draw(self, surface, camera_offset, interaction_target=None):
         cam_x, cam_y = camera_offset
         draw_x = self.x - cam_x
         draw_y = self.y - cam_y
 
+        # Если корабль в процессе посадки — рисуем уменьшающийся спрайт
         if self.is_landing and not self.on_planet_surface:
             scale = self.target_scale
             w = int(self.original_image.get_width() * scale)
@@ -318,8 +399,22 @@ class PlayerShip:
             rotated = pygame.transform.rotate(scaled_img, -self.angle)
             rect = rotated.get_rect(center=(draw_x, draw_y))
             surface.blit(rotated, rect)
+            # При посадке линию не рисуем
             return
 
+        # Обычный режим: вращение и отрисовка
         rotated = pygame.transform.rotate(self.original_image, -self.angle)
         rect = rotated.get_rect(center=(draw_x, draw_y))
         surface.blit(rotated, rect)
+
+        # --- ОТРИСОВКА ЛИНИИ ВЗАИМОДЕЙСТВИЯ ---
+        if interaction_target is not None:
+            tx = interaction_target.x - cam_x
+            ty = interaction_target.y - cam_y
+
+            # Цвет линии: белый с прозрачностью (можно менять)
+            line_color = (255, 255, 255)
+            pygame.draw.line(surface, line_color, (draw_x, draw_y), (tx, ty), 3)
+
+            # Кружок на цели
+            pygame.draw.circle(surface, (255, 255, 255), (int(tx), int(ty)), 6, 2)
