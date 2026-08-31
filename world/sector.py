@@ -1,4 +1,4 @@
-# world/sector.py
+# sector.py
 import random
 import math
 from game_objects.asteroid import Asteroid
@@ -15,6 +15,18 @@ class Sector:
         self.objects = []
         self.is_generated = False
         self.belt = None
+
+    @staticmethod
+    def calculate_mass(size_px):
+        """
+        Рассчитывает массу астероида на основе его размера.
+        Формула: площадь / константа.
+        16px -> ~2.0 (лёгкий)
+        32px -> ~8.0 (средний)
+        64px -> ~32.0 (тяжёлый)
+        124px -> ~119.0 (очень тяжёлый, почти неподвижный)
+        """
+        return (size_px ** 2) / 199.0
 
     def generate_clustered_field(self, asteroid_sprites, total_count=50, wreck_sprite=None, planet_sprite=None):
         self.asteroids = []
@@ -40,13 +52,18 @@ class Sector:
 
                     collision = False
                     for existing in self.asteroids:
-                        if math.hypot(ax - existing.x, ay - existing.y) < 64:
+                        # Используем размер существующего астероида для проверки коллизии
+                        min_dist = max(existing.size_px // 2, 32)
+                        if math.hypot(ax - existing.x, ay - existing.y) < min_dist * 2:
                             collision = True
                             break
 
                     if not collision:
                         sprite_key, (sprite, size_px) = random.choice(mod04_items)
                         rot_speed = random.uniform(-0.02, 0.02)
+
+                        # РАССЧИТЫВАЕМ МАССУ
+                        mass = self.calculate_mass(size_px)
 
                         new_asteroid = Asteroid(
                             sprite=sprite,
@@ -56,8 +73,9 @@ class Sector:
                             orbit_center=None,
                             orbit_radius=0,
                             orbit_speed=0,
-                            size_px=size_px,  # <-- Теперь берём реальный размер
-                            type_key=sprite_key  # <-- Сохраняем ключ для проверки mod04 в main.py
+                            size_px=size_px,
+                            type_key=sprite_key,
+                            mass=mass  # <--- ПЕРЕДАЁМ МАССУ
                         )
                         self.asteroids.append(new_asteroid)
 
@@ -92,8 +110,6 @@ class Sector:
 
                 collision = False
                 for existing in self.asteroids:
-                    # Используем size_px самого астероида для более точной проверки,
-                    # но для простоты пока оставим фиксированный радиус отталкивания 64
                     min_dist = max(existing.size_px // 2, 32)
                     if math.hypot(ax - existing.x, ay - existing.y) < min_dist * 2:
                         collision = True
@@ -102,6 +118,9 @@ class Sector:
                 if not collision:
                     sprite_key, (sprite, size_px) = random.choice(items)
                     rot_speed = random.uniform(-0.02, 0.02)
+
+                    # РАССЧИТЫВАЕМ МАССУ
+                    mass = self.calculate_mass(size_px)
 
                     new_asteroid = Asteroid(
                         sprite=sprite,
@@ -112,7 +131,8 @@ class Sector:
                         orbit_radius=0,
                         orbit_speed=0,
                         size_px=size_px,
-                        type_key=sprite_key
+                        type_key=sprite_key,
+                        mass=mass  # <--- ПЕРЕДАЁМ МАССУ
                     )
                     self.asteroids.append(new_asteroid)
 
@@ -145,10 +165,16 @@ class Sector:
         for sprite_key, count in counts.items():
             # Получаем кортеж (sprite, size)
             data = asteroid_sprites.get(sprite_key)
+
+            # ВАЖНО: Проверка на существование спрайта
             if not data:
+                print(f"[WARN] Не найден спрайт для ключа: {sprite_key}")
                 continue
 
             sprite, size_px = data
+
+            # РАССЧИТЫВАЕМ МАССУ
+            mass = self.calculate_mass(size_px)
 
             for _ in range(count):
                 dist = random.uniform(inner_radius, outer_radius)
@@ -166,8 +192,9 @@ class Sector:
                         orbit_center=(center_x, center_y),
                         orbit_radius=dist,
                         orbit_speed=orbit_speed,
-                        size_px=size_px,  # <-- Реальный размер
-                        type_key=sprite_key  # <-- Ключ для идентификации
+                        size_px=size_px,
+                        type_key=sprite_key,
+                        mass=mass  # <--- ПЕРЕДАЁМ МАССУ
                     )
                 )
 

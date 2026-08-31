@@ -1,4 +1,3 @@
-# main.py
 import pygame
 import sys
 import os
@@ -105,7 +104,7 @@ def main():
     trigger_distance_x = ROOM_WIDTH - 50
     trigger_distance_y = ROOM_HEIGHT - 50
     last_space_pos = (player.x, player.y)
-    player_mass = 64.0  # Масса корабля для расчета импульса
+    player_mass = 64.0  # Масса корабля для расчёта импульса
 
     while running:
         # 1. Обработка событий
@@ -158,7 +157,6 @@ def main():
 
         # --- ЛОГИКА ИГРЫ ---
 
-        # Определение текущей комнаты и подготовка списка объектов для коллизий
         room_x = 0
         room_y = 0
         local_x = 0
@@ -172,7 +170,6 @@ def main():
             local_x = player.x % ROOM_WIDTH
             local_y = player.y % ROOM_HEIGHT
 
-            # Предзагрузка соседей
             should_preload = False
             if (local_x < trigger_distance_x or local_x > ROOM_WIDTH - trigger_distance_x or
                     local_y < trigger_distance_y or local_y > ROOM_HEIGHT - trigger_distance_y):
@@ -185,40 +182,36 @@ def main():
             current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
                                                   planet_sprite=planet_sprite)
 
-            # Формируем список объектов для проверки коллизий (только астероиды в текущей комнате)
             if current_sector and current_sector.asteroids:
                 check_objects = current_sector.asteroids
 
         # ВАЖНО: Вызываем update игрока, передавая список объектов.
-        # Функция вернет объект астероида, если столкновение произошло ДО движения.
         hit_asteroid = player.update(world_objects=check_objects)
 
-        # Обработка физики удара, если столкновение было предсказано в player.py
         if hit_asteroid:
+            # Проверяем, является ли астероид «прочным» (mod04) — тогда он отскакивает
             is_mod04 = hit_asteroid.type_key.startswith("ast_mod04")
 
             if is_mod04:
-                print("[COLLISION] Удар о mod04! Корабль остановлен.")
-
-                # Расчет импульса
-                asteroid_mass = float(hit_asteroid.size_px)
-                if asteroid_mass < 1.0:
-                    asteroid_mass = 1.0
-
+                # Физика отскока
                 momentum_x = player.last_vx * player_mass
                 momentum_y = player.last_vy * player_mass
-
+                bounce_factor = 0.5  # <--- МЕНЯТЬ ЗДЕСЬ: <1 слабее, >1 сильнее
                 if abs(momentum_x) < 0.01 and abs(momentum_y) < 0.01:
-                    # Маленький случайный толчок, чтобы объекты не залипали
-                    hit_asteroid.apply_knockback(random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5))
+                    # Если корабль почти стоял — лёгкий случайный толчок
+                    hit_asteroid.apply_knockback(random.uniform(-0.5, 0.5) * bounce_factor, random.uniform(-0.5, 0.5) * bounce_factor)
                 else:
-                    push_x = momentum_x / asteroid_mass
-                    push_y = momentum_y / asteroid_mass
+                    push_x = momentum_x / hit_asteroid.mass
+                    push_y = momentum_y / hit_asteroid.mass
                     hit_asteroid.apply_knockback(push_x, push_y)
+
+                # Опционально: можно слегка толкнуть и корабль в обратную сторону
+                player.velocity.x -= push_x * (hit_asteroid.mass / player_mass)
+                player.velocity.y -= push_y * (hit_asteroid.mass / player_mass)
             else:
                 # Обычная добыча: удаляем астероид, добавляем металл
                 player.inventory["metal"] += 1
-                if hit_asteroid in current_sector.asteroids:
+                if current_sector and hit_asteroid in current_sector.asteroids:
                     current_sector.asteroids.remove(hit_asteroid)
 
         # Движение камеры
@@ -250,7 +243,6 @@ def main():
                     for y in range(-1, 2):
                         screen.blit(stars, (offset_x + x * w, offset_y + y * h))
 
-            # Сбор всех объектов для отрисовки
             all_objects = []
             if current_sector:
                 if hasattr(current_sector, 'asteroids') and current_sector.asteroids:
@@ -258,16 +250,13 @@ def main():
                 if hasattr(current_sector, 'objects') and current_sector.objects:
                     all_objects.extend(current_sector.objects)
 
-            # Отрисовка объектов мира
             for obj in all_objects:
                 if isinstance(obj, list):
                     continue
 
-                # Обновление логики объекта (если есть)
                 if hasattr(obj, 'update'):
                     obj.update()
 
-                # Подсветка при наведении
                 show_highlight = False
                 if (hasattr(obj, 'x') and hasattr(obj, 'y') and hasattr(obj, 'highlight_radius')):
                     dist_sq = (obj.x - player.x) ** 2 + (obj.y - player.y) ** 2
@@ -275,18 +264,15 @@ def main():
                     if dist_sq <= radius_sq:
                         show_highlight = True
 
-                # Отрисовка
                 if hasattr(obj, 'draw'):
                     if isinstance(obj, (StaticShip, StaticPlanet)):
                         obj.draw(screen, camera, show_highlight=show_highlight)
                     else:
                         obj.draw(screen, camera)
 
-            # Отрисовка пуль (логика обновления уже внутри player.update, здесь только отрисовка)
             for bullet in player.bullets:
                 bullet.draw(screen, camera)
 
-            # Отрисовка игрока
             player.draw(screen, camera.topleft)
 
         # --- ОТЛАДКА (текст поверх экрана) ---

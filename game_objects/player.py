@@ -1,7 +1,6 @@
 # game_objects/player.py
 import pygame
 import math
-import random
 from config import SHIP_ACCELERATION
 from game_objects.bullet import Bullet
 
@@ -132,13 +131,27 @@ class PlayerShip:
         self.fire_cooldown = current_time + self.cooldown_time
         return new_bullet
 
+    def apply_impulse_to(self, obj, force):
+        dx = obj.x - self.x
+        dy = obj.y - self.y
+        length = math.hypot(dx, dy)
+
+        if length == 0:
+            return
+
+        dx /= length
+        dy /= length
+
+        # Используем встроенный метод астероида
+        obj.apply_knockback(dx * force, dy * force)
+
     def update(self, world_objects=None):
         """
         Основной цикл обновления физики.
         world_objects: список объектов (астероидов) для проверки коллизий.
         Возвращает объект столкновения, если оно произошло, иначе None.
         """
-        # 1. Сохраняем скорость ДО изменений для передачи в main.py (физика удара)
+        # Сохраняем скорость ДО изменений для передачи в main.py (физика удара)
         self.last_vx = float(self.velocity.x)
         self.last_vy = float(self.velocity.y)
 
@@ -170,129 +183,8 @@ class PlayerShip:
                 self.target_scale = max(self.min_scale, 1.0 - t * (1.0 - self.min_scale))
 
             self._update_rect()
-            return None  # Во время посадки коллизии с астероидами не проверяем
-
-        # --- ЛОГИКА НА ПЛАНЕТЕ ---
-        if self.on_planet_surface:
-            self.velocity *= 0.98
-            self.x += self.velocity.x
-            self.y += self.velocity.y
-            self.angular_velocity *= 0.95
-            if abs(self.angular_velocity) < 0.01:
-                self.angular_velocity = 0.0
-            self._update_rect()
-            return None
-
-        # --- ЛОГИКА КОСМОСА (ИСПРАВЛЕННАЯ ФИЗИКА) ---
-
-        # 1. Обновляем вращение
-        self.angle += self.angular_velocity
-        if self.angle > 360:
-            self.angle -= 360
-        elif self.angle < 0:
-            self.angle += 360
-        self.angular_velocity *= 0.95
-        if abs(self.angular_velocity) < 0.01:
-            self.angular_velocity = 0.0
-
-        # 2. Применяем трение к скорости
-        self.velocity *= 0.98
-
-        # 3. ПРЕДСКАЗАНИЕ ДВИЖЕНИЯ (Predictive Collision)
-        # Вычисляем, где мы будем в следующем кадре
-        next_x = self.x + self.velocity.x
-        next_y = self.y + self.velocity.y
-
-        # Создаем временный rect для проверки (хитбокс)
-        w = self.original_image.get_width()
-        h = self.original_image.get_height()
-
-        # Учитываем масштабирование при посадке (если вдруг логика изменится)
-        if self.is_landing and not self.on_planet_surface:
-            w = int(w * self.target_scale)
-            h = int(h * self.target_scale)
-
-        temp_rect = pygame.Rect(0, 0, w, h)
-        temp_rect.center = (next_x, next_y)
-
-        collision_detected = False
-        hit_object = None
-
-        # Проверка столкновений только если передан список объектов
-        if world_objects:
-            for obj in world_objects:
-                if not hasattr(obj, 'rect'):
-                    continue
-
-                # Проверка пересечения хитбоксов
-                if temp_rect.colliderect(obj.rect):
-                    collision_detected = True
-                    hit_object = obj
-                    break  # Прерываем, если ударились о первый объект
-
-        # 4. Применяем движение ИЛИ обрабатываем удар
-        if collision_detected and hit_object:
-            # СТОЛКНОВЕНИЕ:
-            # Мы НЕ двигаем корабль. Оставляем его в текущей позиции (self.x, self.y).
-            # Это гарантирует, что спрайты никогда не пересекутся.
-
-            # Сбрасываем скорость, чтобы избежать "вибрации" или застревания
-            self.velocity = pygame.math.Vector2(0, 0)
-
-            # Обновляем rect на текущую позицию (без движения)
-            self._update_rect()
-
-            # Возвращаем объект, о который ударились, чтобы main.py мог применить физику (импульс)
-            return hit_object
-        else:
-            # НЕТ СТОЛКНОВЕНИЯ: применяем движение
-            self.x = next_x
-            self.y = next_y
-            self._update_rect()
-            return None
-
-        # Примечание: Код ниже никогда не выполнится из-за return выше,
-        # но я оставил логику анимации и пуль здесь, чтобы она была в правильном месте.
-        # В реальной структуре кода эти блоки должны быть ПОСЛЕ всех return.
-        # Ниже исправленная структура:
-
-    # Переопределяем update с правильной структурой блоков (анимация и пули в конце)
-    def update(self, world_objects=None):
-        # Сохраняем скорость для физики удара
-        self.last_vx = float(self.velocity.x)
-        self.last_vy = float(self.velocity.y)
-
-        # --- ЛОГИКА ПОСАДКИ ---
-        if self.is_landing and not self.on_planet_surface:
-            if self.landing_target is None:
-                from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
-                self.landing_target = pygame.math.Vector2(PLANET_ROOM_WIDTH // 2, PLANET_ROOM_HEIGHT // 2)
-
-            current_pos = pygame.math.Vector2(self.x, self.y)
-            direction = self.landing_target - current_pos
-            dist = direction.length()
-
-            if dist < 2.0:
-                self.x = self.landing_target.x
-                self.y = self.landing_target.y
-                self.landing_progress = 1.0
-                self.on_planet_surface = True
-                self.target_scale = self.min_scale
-                self.landing_target = None
-            else:
-                direction.scale_to_length(self.landing_move_speed)
-                self.x += direction.x
-                self.y += direction.y
-                self.landing_progress += self.landing_speed
-                if self.landing_progress > 1.0:
-                    self.landing_progress = 1.0
-                t = self.landing_progress
-                self.target_scale = max(self.min_scale, 1.0 - t * (1.0 - self.min_scale))
-
-            self._update_rect()
-            # Анимация и пули все равно должны обновиться даже при посадке
             self._update_animation_and_bullets()
-            return None
+            return None  # Во время посадки коллизии с астероидами не проверяем
 
         # --- ЛОГИКА НА ПЛАНЕТЕ ---
         if self.on_planet_surface:
@@ -347,13 +239,23 @@ class PlayerShip:
                     break
 
         if collision_detected and hit_object:
-            # СТОЛКНОВЕНИЕ: Отменяем движение, сбрасываем скорость
+            # СТОЛКНОВЕНИЕ:
+
+            # 1. Сбрасываем скорость корабля, чтобы избежать "вибрации"
             self.velocity = pygame.math.Vector2(0, 0)
+
+            # 2. Применяем импульс к астероиду (Вариант Б)
+            # Сила 12.0 — это хорошее стартовое значение для маленьких астероидов.
+            # Если всё равно улетают далеко — уменьши до 8.0 или 10.0.
+            self.apply_impulse_to(hit_object, 12.0)
+
+            # Обновляем rect на текущую позицию (без движения)
             self._update_rect()
+
             self._update_animation_and_bullets()
             return hit_object
         else:
-            # Движение разрешено
+            # НЕТ СТОЛКНОВЕНИЯ: применяем движение
             self.x = next_x
             self.y = next_y
             self._update_rect()
