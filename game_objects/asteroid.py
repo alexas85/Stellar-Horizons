@@ -1,3 +1,4 @@
+# asteroid.py
 import math
 import pygame
 import random
@@ -7,7 +8,7 @@ DEBUG_HITBOX = False
 
 # --- НАСТРОЙКИ ФИЗИКИ ---
 MAX_ASTEROID_SPEED = 3.0  # Максимальная скорость астероида (подбирай под баланс)
-ASTEROID_DECAY = 0.94    # Затухание скорости (трение)
+ASTEROID_DECAY = 0.98    # Затухание скорости (трение)
 
 
 class Asteroid:

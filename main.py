@@ -1,3 +1,4 @@
+# main.py
 import pygame
 import sys
 import os
@@ -196,7 +197,7 @@ def main():
                 # Физика отскока
                 momentum_x = player.last_vx * player_mass
                 momentum_y = player.last_vy * player_mass
-                bounce_factor = 0.5  # <--- МЕНЯТЬ ЗДЕСЬ: <1 слабее, >1 сильнее
+                bounce_factor = 0.1  # <--- МЕНЯТЬ ЗДЕСЬ: <1 слабее, >1 сильнее
                 if abs(momentum_x) < 0.01 and abs(momentum_y) < 0.01:
                     # Если корабль почти стоял — лёгкий случайный толчок
                     hit_asteroid.apply_knockback(random.uniform(-0.5, 0.5) * bounce_factor, random.uniform(-0.5, 0.5) * bounce_factor)

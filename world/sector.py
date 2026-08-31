@@ -188,7 +188,7 @@ class Sector:
                         x=center_x,
                         y=center_y,
                         angle=random.uniform(0, 2 * math.pi),
-                        rotation_speed=random.uniform(-0.05, 0.05),
+                        rotation_speed=random.uniform(-0.01, 0.01),
                         orbit_center=(center_x, center_y),
                         orbit_radius=dist,
                         orbit_speed=orbit_speed,

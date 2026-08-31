@@ -23,11 +23,11 @@ class WorldGenerator:
                 sector.generate_belt(
                     asteroid_sprites=asteroid_sprites,
                     inner_radius=400,      # было min_x
-                    outer_radius=700,     # было max_x
+                    outer_radius=800,     # было max_x
                     counts={              # было distribution
-                        "ast_mod01_s16": 75,
-                        "ast_mod01_s32": 45,
-                        "ast_mod01_s64": 50
+                        "ast_mod01_s16": 35,
+                        "ast_mod01_s32": 25,
+                        "ast_mod01_s64": 20
                     },
                     wreck_sprite=wreck_sprite,
                     planet_sprite=planet_sprite
