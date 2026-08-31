@@ -113,7 +113,6 @@ class PlayerShip:
         self._update_rect()
 
     def shoot(self, bullet_sprite):
-        """Создание пули"""
         current_time = pygame.time.get_ticks()
         if self.fire_cooldown > 0 and current_time < self.fire_cooldown:
             return None
@@ -123,7 +122,8 @@ class PlayerShip:
             y=self.y,
             angle=self.angle,
             speed=12,
-            max_distance=300
+            max_distance=300,
+            base_velocity=self.velocity  # <-- важно: передаём скорость корабля
         )
         new_bullet.set_sprite(bullet_sprite)
 
@@ -241,19 +241,19 @@ class PlayerShip:
         if collision_detected and hit_object:
             # СТОЛКНОВЕНИЕ:
 
-            # 1. Сбрасываем скорость корабля, чтобы избежать "вибрации"
+            # 1. Сбрасываем скорость корабля
             self.velocity = pygame.math.Vector2(0, 0)
 
-            # 2. Применяем импульс к астероиду (Вариант Б)
-            # Сила 12.0 — это хорошее стартовое значение для маленьких астероидов.
-            # Если всё равно улетают далеко — уменьши до 8.0 или 10.0.
+            # 2. СРАЗУ выключаем тягу при ударе — иначе анимация может «подмигивать»
+            self.is_thrusting = False
+
+            # 3. Применяем импульс к астероиду
             self.apply_impulse_to(hit_object, 12.0)
 
-            # Обновляем rect на текущую позицию (без движения)
             self._update_rect()
-
             self._update_animation_and_bullets()
             return hit_object
+
         else:
             # НЕТ СТОЛКНОВЕНИЯ: применяем движение
             self.x = next_x
@@ -264,15 +264,26 @@ class PlayerShip:
 
     def _update_animation_and_bullets(self):
         """Вынесенная логика анимации и пуль, чтобы не дублировать код"""
-        # Анимация двигателей
-        if self.is_thrusting and self.movement_sprites:
+        # Считаем текущую скорость
+        speed = self.velocity.length()
+
+        # Порог, ниже которого считаем корабль «остановившимся»
+        STOP_THRESHOLD = 0.15
+
+        # Если скорость очень маленькая — принудительно выключаем тягу и сбрасываем анимацию
+        if speed < STOP_THRESHOLD:
+            self.is_thrusting = False
+
+        # Анимация двигателей: только если есть тяга И скорость достаточная
+        if self.is_thrusting and speed >= STOP_THRESHOLD and self.movement_sprites:
             self.animation_timer += 1
             if self.animation_timer >= 4:
                 self.animation_index = (self.animation_index + 1) % len(self.movement_sprites)
                 self.animation_timer = 0
             self.original_image = self.movement_sprites[self.animation_index]
         else:
-            self.is_thrusting = False
+            # Выключаем анимацию, возвращаем idle
+            self.is_thrusting = False  # чтобы не включалась снова без нажатия
             self.original_image = self.idle_sprite
             self.animation_index = 0
             self.animation_timer = 0

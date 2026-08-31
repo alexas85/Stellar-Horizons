@@ -206,9 +206,9 @@ def main():
                     push_y = momentum_y / hit_asteroid.mass
                     hit_asteroid.apply_knockback(push_x, push_y)
 
-                # Опционально: можно слегка толкнуть и корабль в обратную сторону
-                player.velocity.x -= push_x * (hit_asteroid.mass / player_mass)
-                player.velocity.y -= push_y * (hit_asteroid.mass / player_mass)
+                recoil_factor = 0.2  # 0.0 = вообще нет отдачи, 1.0 = как сейчас
+                player.velocity.x -= push_x * (hit_asteroid.mass / player_mass) * recoil_factor
+                player.velocity.y -= push_y * (hit_asteroid.mass / player_mass) * recoil_factor
             else:
                 # Обычная добыча: удаляем астероид, добавляем металл
                 player.inventory["metal"] += 1
