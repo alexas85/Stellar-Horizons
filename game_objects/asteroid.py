@@ -61,11 +61,83 @@ class Asteroid:
         self.collection_start_time = 0.0   # время начала сбора (в мс)
         self.collected_resources = None    # словарь с ресурсами, которые будут начислены (или None)
         self.marked_for_removal = False     # флаг: объект нужно удалить из сектора
+        # --- HP АСТЕРОИДА ---
+        self.hp = {16: 10, 32: 40, 64: 70}.get(size_px, 10)
 
     def apply_knockback(self, push_x, push_y):
         """Добавляет импульс к астероиду (для отскока)."""
         self.velocity_x += push_x
         self.velocity_y += push_y
+    def take_damage(self, amount):
+        """Получение урона от пули."""
+        self.hp -= amount
+
+    def spawn_fragments(self, asteroid_sprites):
+        """
+        Создаёт фрагменты при разрушении астероида.
+        Возвращает список новых объектов Asteroid.
+        """
+        fragments = []
+
+        if self.size_px == 64:
+            count_32 = random.randint(1, 2)
+            count_16 = random.randint(2, 6)
+            for _ in range(count_32):
+                frag = self._create_fragment(32, asteroid_sprites)
+                if frag:
+                    fragments.append(frag)
+            for _ in range(count_16):
+                frag = self._create_fragment(16, asteroid_sprites)
+                if frag:
+                    fragments.append(frag)
+
+        elif self.size_px == 32:
+            count_16 = random.randint(4, 8)
+            for _ in range(count_16):
+                frag = self._create_fragment(16, asteroid_sprites)
+                if frag:
+                    fragments.append(frag)
+
+        # 16px не spawning фрагментов — это конечный размер для лазера
+
+        return fragments
+
+    def _create_fragment(self, size_px, asteroid_sprites):
+        """Создаёт один фрагмент заданного размера."""
+        mod_prefix = self.type_key.split("_s")[0]  # "ast_mod04"
+        key = f"{mod_prefix}_s{size_px}"
+
+        sprite_data = asteroid_sprites.get(key)
+        if not sprite_data:
+            print(f"[WARN] Нет спрайта для фрагмента: {key}")
+            return None
+
+        sprite, _ = sprite_data
+
+        # Случайное направление и скорость 2-5
+        angle = random.uniform(0, 2 * math.pi)
+        speed = random.uniform(2, 5)
+        vx = math.cos(angle) * speed
+        vy = math.sin(angle) * speed
+
+        mass = self.calculate_mass_from_size(size_px)
+
+        frag = Asteroid(
+            sprite=sprite,
+            x=self.x,
+            y=self.y,
+            angle=random.uniform(0, 2 * math.pi),
+            rotation_speed=random.uniform(-0.02, 0.02),
+            orbit_center=None,
+            orbit_radius=0,
+            orbit_speed=0,
+            size_px=size_px,
+            type_key=key,
+            mass=mass
+        )
+        frag.velocity_x = vx
+        frag.velocity_y = vy
+        return frag
 
     def update(self):
         # Если у астероида есть орбита — двигаем по орбите

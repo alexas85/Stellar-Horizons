@@ -18,6 +18,7 @@ class Bullet:
         self.max_distance = max_distance
         self.distance_traveled = 0
         self.sprite = None
+        self.damage = 10
 
         # Прямоугольник для коллизий
         self.rect = pygame.Rect(0, 0, 16, 16)

@@ -1,4 +1,4 @@
-# sector.py
+# world/sector.py
 import random
 import math
 from game_objects.asteroid import Asteroid

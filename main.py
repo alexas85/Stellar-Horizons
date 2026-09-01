@@ -245,6 +245,36 @@ def main():
                 player.inventory["metal"] += 1
                 if current_sector and hit_asteroid in current_sector.asteroids:
                     current_sector.asteroids.remove(hit_asteroid)
+        # --- ПОПАДАНИЕ ПУЛЬ ПО АСТЕРОИДАМ ---
+        new_fragments = []
+        if current_sector and current_sector.asteroids:
+            for bullet in player.bullets[:]:
+                if not bullet.is_active():
+                    continue
+                for ast in current_sector.asteroids:
+                    if ast.marked_for_removal:
+                        continue
+                    if bullet.rect.colliderect(ast.rect):
+                        ast.take_damage(bullet.damage)
+                        if bullet in player.bullets:
+                            player.bullets.remove(bullet)
+
+                        if ast.hp <= 0:
+                            ast.marked_for_removal = True
+                            # Если добывали этот астероид — останавливаем сбор
+                            if player.collecting_asteroid is ast:
+                                player.stop_collection()
+                            # Спавним фрагменты
+                            fragments = ast.spawn_fragments(asteroid_sprites)
+                            for frag in fragments:
+                                if frag is not None:
+                                    new_fragments.append(frag)
+                        break
+
+        # Добавляем фрагменты в сектор (до cleanup, чтобы они сразу отрисовались)
+        if new_fragments and current_sector:
+            current_sector.asteroids.extend(new_fragments)
+
 
         # ОЧИСТКА УДАЛЕННЫХ АСТЕРОИДОВ (должно быть ДО отрисовки!)
         if current_sector and current_sector.asteroids:
