@@ -4,7 +4,7 @@ import pygame
 import random
 
 # --- НАСТРОЙКА ОТЛАДКИ ---
-DEBUG_HITBOX = True
+DEBUG_HITBOX = False  # Отображение коллизий
 
 # --- НАСТРОЙКИ ФИЗИКИ ---
 MAX_ASTEROID_SPEED = 3.0  # Максимальная скорость астероида (подбирай под баланс)

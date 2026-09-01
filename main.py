@@ -121,7 +121,6 @@ def main():
         keys = pygame.key.get_pressed()
 
         # --- ЛОГИКА КНОПКИ ДЕЙСТВИЯ (E) ---
-        # Ищем объект для взаимодействия ТОЛЬКО если кнопка зажата и мы не на планете/в посадке
         interaction_target = None
 
         if (not player.on_planet_surface and not player.is_landing and keys[pygame.K_e]):
@@ -132,7 +131,8 @@ def main():
                                           wreck_sprite=wreck_sprite, planet_sprite=planet_sprite)
 
             near_planet = None
-            # 1. Приоритет: Планета
+
+            # 1. Приоритет: Планета (посадка)
             if sector and sector.objects:
                 for obj in sector.objects:
                     if isinstance(obj, StaticPlanet):
@@ -143,29 +143,32 @@ def main():
                             break
 
             if near_planet:
-                # Выполняем действие: посадка
                 last_space_pos = (player.x, player.y)
                 player.start_landing(near_planet)
-                print("[ACTION] Начало посадки на планету")
-                # При посадке цель для линии не нужна (или можно оставить планету, но обычно линию убирают)
                 interaction_target = near_planet
             else:
-                # 2. Если планеты нет: ищем астероид для добычи
+                # 2. Добыча астероида
                 closest_asteroid = None
-                closest_dist = float('inf')
+                closest_dist_sq = float('inf')
 
                 if sector and sector.asteroids:
                     for ast in sector.asteroids:
-                        dist_sq = (ast.x - player.x) ** 2 + (ast.y - player.y) ** 2
-                        # Проверяем дистанцию 250px
-                        if dist_sq <= INTERACTION_MAX_DIST_SQ and dist_sq < closest_dist:
-                            closest_dist = dist_sq
-                            closest_asteroid = ast
+                        # Быстрая проверка дистанции (150px)
+                        dx = ast.x - player.x
+                        dy = ast.y - player.y
+                        d_sq = dx * dx + dy * dy
+
+                        # Условие: дистанция <= 150^2 И тип mod04 И размер 16px
+                        if d_sq <= (150 ** 2):
+                            if ast.type_key.startswith("ast_mod04") and ast.size_px == 16:
+                                if d_sq < closest_dist_sq:
+                                    closest_dist_sq = d_sq
+                                    closest_asteroid = ast
 
                 if closest_asteroid:
                     started = player.try_start_collection(closest_asteroid)
                     if started:
-                        print("[ACTION] Начата добыча с астероида")
+                        print(f"[ACTION] Добыча начата с {closest_asteroid.type_key}")
                     interaction_target = closest_asteroid
 
         # --- КНОПКА ОТКАТА (Q) ---
@@ -243,7 +246,7 @@ def main():
                 if current_sector and hit_asteroid in current_sector.asteroids:
                     current_sector.asteroids.remove(hit_asteroid)
 
-        # Очистка помеченных астероидов
+        # ОЧИСТКА УДАЛЕННЫХ АСТЕРОИДОВ (должно быть ДО отрисовки!)
         if current_sector and current_sector.asteroids:
             current_sector.asteroids = [
                 ast for ast in current_sector.asteroids if not ast.marked_for_removal
@@ -305,7 +308,15 @@ def main():
                         obj.draw(screen, camera, show_highlight=show_highlight)
                     else:
                         obj.draw(screen, camera)
-
+                        # --- СЕРАЯ ОКРУЖНОСТЬ ВОКРУГ MOD04 АСТЕРОИДОВ В РАДИУСЕ 150px ---
+            if current_sector and current_sector.asteroids:
+                for ast in current_sector.asteroids:
+                    if ast.type_key.startswith("ast_mod04") and ast.size_px == 16:
+                        dist_sq = (ast.x - player.x) ** 2 + (ast.y - player.y) ** 2
+                        if dist_sq <= 150 ** 2:
+                            sx = int(ast.x - camera.x)
+                            sy = int(ast.y - camera.y)
+                            pygame.draw.circle(screen, (128, 128, 128), (sx, sy), 32, 1)
             for bullet in player.bullets:
                 bullet.draw(screen, camera)
 

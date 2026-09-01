@@ -4,6 +4,8 @@ import math
 import random
 from config import SHIP_ACCELERATION
 from game_objects.bullet import Bullet
+from game_objects.asteroid import Asteroid
+
 
 
 class PlayerShip:
@@ -167,25 +169,27 @@ class PlayerShip:
         """
         Пытается начать сбор с астероида.
         Возвращает True, если сбор начался, иначе False.
-        Условия: тип mod04, низкая скорость, дистанция ≤ 50px, не на планете, не в посадке.
         """
         # Не начинаем сбор, если уже что-то добываем или находимся на планете/в посадке
         if self.is_collecting or self.on_planet_surface or self.is_landing:
             return False
 
-        # Проверка типа астероида (только mod04)
-        if not asteroid.type_key.startswith("ast_mod04"):
+        # ПРОВЕРКА ТИПА: только mod04
+        # Дополнительно проверяем размер 16px для надежности
+        if not asteroid.type_key.startswith("ast_mod04") or asteroid.size_px != 16:
             return False
 
-        # Проверка дистанции
+        # ПРОВЕРКА ДИСТАНЦИИ: строго ≤ 150 пикселей (как ты просил)
         dist_sq = (asteroid.x - self.x) ** 2 + (asteroid.y - self.y) ** 2
-        max_dist = 250
+        max_dist = 150
         if dist_sq > max_dist ** 2:
             return False
 
-        # Проверка скорости астероида: должна быть почти нулевой
+        # Проверка скорости: оставляем, но делаем мягче.
+        # Если астероид летит быстро, лазер не сработает.
+        # Для баланса оставим 0.8 вместо 0.5.
         speed = math.hypot(asteroid.velocity_x, asteroid.velocity_y)
-        if speed > 0.5:
+        if speed > 0.8:
             return False
 
         # Всё ок — начинаем сбор
@@ -271,7 +275,7 @@ class PlayerShip:
 
             # Проверка: если игрок слишком далеко ушёл — прерываем сбор
             dist_sq = (asteroid.x - self.x) ** 2 + (asteroid.y - self.y) ** 2
-            max_dist = 60  # чуть больше, чем при старте
+            max_dist = 160  # чуть больше, чем при старте
             if dist_sq > max_dist ** 2:
                 self.stop_collection()
 
@@ -407,14 +411,14 @@ class PlayerShip:
         rect = rotated.get_rect(center=(draw_x, draw_y))
         surface.blit(rotated, rect)
 
-        # --- ОТРИСОВКА ЛИНИИ ВЗАИМОДЕЙСТВИЯ ---
+        # --- ОТРИСОВКА ЛИНИИ ВЗАИМОДЕЙСТВИЯ И ПОДСВЕТКИ ---
         if interaction_target is not None:
             tx = interaction_target.x - cam_x
             ty = interaction_target.y - cam_y
 
-            # Цвет линии: белый с прозрачностью (можно менять)
+            # 2. Рисуем линию лазера (белую)
             line_color = (255, 255, 255)
             pygame.draw.line(surface, line_color, (draw_x, draw_y), (tx, ty), 3)
 
-            # Кружок на цели
+            # 3. Рисуем кружок на цели (для красоты, можно оставить или убрать)
             pygame.draw.circle(surface, (255, 255, 255), (int(tx), int(ty)), 6, 2)
