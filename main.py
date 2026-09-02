@@ -222,6 +222,7 @@ def main():
         # ВАЖНО: Вызываем update игрока, передавая список объектов.
         hit_asteroid = player.update(world_objects=check_objects)
 
+
         if hit_asteroid:
             is_mod04 = hit_asteroid.type_key.startswith("ast_mod04")
 

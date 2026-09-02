@@ -151,6 +151,28 @@ class Sector:
             new_planet = StaticPlanet(sprite=planet_sprite, x=planet_x, y=planet_y)
             self.objects.append(new_planet)
 
+        # --- РАЗВЕДЧИК В КОМНАТЕ (0, 1) ---
+        if self.x == 0 and self.y == 1:
+            from game_objects.enemy import ScoutShip
+            from sprites import get_scout_sprites
+
+            scout_idle, scout_anim = get_scout_sprites()
+            start_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
+            start_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
+
+            scout = ScoutShip(
+                x=start_x,
+                y=start_y,
+                idle_sprite=scout_idle,
+                movement_sprites=scout_anim,
+                sector_x=self.x,
+                sector_y=self.y,
+                room_width=ROOM_WIDTH,
+                room_height=ROOM_HEIGHT
+            )
+            self.objects.append(scout)
+            print(f"[DEBUG] Разведчик добавлен в комнату ({self.x}, {self.y})")
+
         self.is_generated = True
 
     def generate_belt(self, asteroid_sprites, inner_radius, outer_radius, counts, wreck_sprite=None,

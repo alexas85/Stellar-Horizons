@@ -70,6 +70,25 @@ def get_ship_sprites(class_id):
 
     return idle, movement
 
+def get_scout_sprites():
+    """Загружает спрайты для корабля-разведчика из class_4."""
+    folder = "ships/class_4"
+
+    idle_path = f"{folder}/scout_idle.png"
+    idle = load_image(idle_path)
+
+    movement = []
+    for i in range(1, 4):
+        anim_path = f"{folder}/scout_anim{i:02d}.png"  # scout_anim01, scout_anim02, scout_anim03
+        movement.append(load_image(anim_path))
+
+    if not movement:
+        movement = [idle]
+
+    return idle, movement
+
+
+
 
 def get_asteroid_sprites():
     """Загружает спрайты астероидов и возвращает словарь: key -> (sprite, size_px)"""
