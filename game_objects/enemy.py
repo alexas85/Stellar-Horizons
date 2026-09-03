@@ -33,6 +33,11 @@ class ScoutShip:
 
         # Сила отскока астероидов
         self.collision_force = 8.0
+        # Здоровье и уничтожение
+        self.hp = 50
+        self.is_destroyed = False
+        self.destroyed_sprite = None
+
 
 
         # Границы комнаты — абсолютные мировые координаты
@@ -113,6 +118,11 @@ class ScoutShip:
                 self.angular_velocity -= self.turn_acceleration
 
     def update(self, dt_ms=0, target=None):
+        if self.is_destroyed:
+            self._drift_destroyed()
+            return
+        # ... остальной код
+
         if self.state == 'PICK_NEW':
             self.pick_new_target()
             return
@@ -232,6 +242,42 @@ class ScoutShip:
         rect = rotated.get_rect(center=(int(draw_x), int(draw_y)))
         surface.blit(rotated, rect)
 
+    def set_destroyed_sprite(self, sprite):
+        self.destroyed_sprite = sprite
+
+    def take_damage(self, amount):
+        if self.is_destroyed:
+            return
+        self.hp -= amount
+        if self.hp <= 0:
+            self.is_destroyed = True
+            self.state = 'DESTROYED'
+            self.is_thrusting = False
+            self.combat_target = None
+            if self.destroyed_sprite:
+                self.idle_sprite = self.destroyed_sprite
+                self.movement_sprites = [self.destroyed_sprite]
+                self.original_image = self.destroyed_sprite
+
+    def _drift_destroyed(self):
+        """Дрейф уничтоженного корабля."""
+        self.velocity *= SHIP_FRICTION
+        self.angular_velocity *= 0.95
+        if abs(self.angular_velocity) < 0.01:
+            self.angular_velocity = 0.0
+        self.x += self.velocity.x
+        self.y += self.velocity.y
+        self.x = max(self.room_left, min(self.x, self.room_right))
+        self.y = max(self.room_top, min(self.y, self.room_bottom))
+        self.angle += self.angular_velocity
+        if self.angle > 360:
+            self.angle -= 360
+        elif self.angle < 0:
+            self.angle += 360
+        self._update_animation()
+        self._update_rect()
+
+
 class DestroyerShip(ScoutShip):
     """Истребитель — патрулирует, а при сближении игрока — преследует и стреляет."""
 
@@ -252,13 +298,16 @@ class DestroyerShip(ScoutShip):
         self.loiter_duration = 1200
         self.collision_force = 14.0
 
+
         # Боевые параметры
-        self.detect_range = 300      # дистанция обнаружения игрока
+        self.detect_range = 600      # дистанция обнаружения игрока
         self.keep_distance = 150     # минимальная дистанция, ближе не подлетает
         self.fire_cooldown = 0
-        self.cooldown_time = 400     # мс между выстрелами
+        self.cooldown_time = 400    # мс между выстрелами
         self.bullets = []
         self.combat_target = None
+        self.hp = 100  # истребитель прочнее разведчика
+
 
     def shoot(self):
         """Стреляет пулю в текущем направлении носа корабля."""
@@ -283,6 +332,10 @@ class DestroyerShip(ScoutShip):
 
     def update(self, dt_ms=0, target=None):
         """Обновление с боевой логикой. target — объект игрока (или None)."""
+        if self.is_destroyed:
+            self._drift_destroyed()
+            return
+
         # Проверка: виден ли игрок?
         if target is not None:
             dx = target.x - self.x

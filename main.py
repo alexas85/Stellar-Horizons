@@ -13,6 +13,10 @@ from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
 from config import RESOURCE_ICONS
+from game_objects.rocket import Rocket
+from game_objects.enemy import DestroyerShip, ScoutShip
+from sprites import get_rocket_sprites
+
 from game_objects.enemy import DestroyerShip
 
 from game_objects.bullet import Bullet
@@ -73,12 +77,14 @@ def main():
         bullet_sprite = pygame.image.load(bullet_path).convert_alpha()
         from game_objects.enemy import DestroyerShip
         DestroyerShip.set_bullet_sprite(bullet_sprite)
+        rocket_sprites = get_rocket_sprites()
 
         print(f"[SUCCESS] Спрайт выстрела загружен: {bullet_path}")
     except FileNotFoundError:
         print("[WARNING] Не удалось найти выстрел. Используется заглушка.")
         bullet_sprite = pygame.Surface((16, 16))
         bullet_sprite.fill((255, 0, 0))
+
 
     resource_surfaces = {}
     for name, path in RESOURCE_ICONS.items():
@@ -106,6 +112,9 @@ def main():
 
     generator = WorldGenerator()
     camera = pygame.Rect(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT)
+    fire_rocket = False
+    rockets = []
+    locked_target = None
     running = True
 
     trigger_distance_x = ROOM_WIDTH - 50
@@ -129,6 +138,9 @@ def main():
                 if event.key == pygame.K_F3:
                     show_scout_indicator = not show_scout_indicator
                     print(f"[DEBUG] Индикатор разведчика: {'ВКЛ' if show_scout_indicator else 'ВЫКЛ'}")
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 3:  # ПКМ
+                    fire_rocket = True
 
         keys = pygame.key.get_pressed()
 
@@ -231,6 +243,38 @@ def main():
             if current_sector and current_sector.asteroids:
                 check_objects = current_sector.asteroids
 
+        # --- ЗАХВАТ ЦЕЛИ ДЛЯ РАКЕТЫ ---
+        locked_target = None
+        if current_sector and not player.on_planet_surface and not player.is_landing:
+            for obj in current_sector.objects:
+                if isinstance(obj, (ScoutShip, DestroyerShip)) and not obj.is_destroyed:
+                    dx = obj.x - player.x
+                    dy = obj.y - player.y
+                    dist = math.hypot(dx, dy)
+                    if dist <= 500:
+                        target_angle = math.degrees(math.atan2(dy, dx))
+                        angle_diff = target_angle - player.angle
+                        while angle_diff > 180:
+                            angle_diff -= 360
+                        while angle_diff < -180:
+                            angle_diff += 360
+                        if abs(angle_diff) <= 60:
+                            locked_target = obj
+                            break
+
+        # --- ЗАПУСК РАКЕТЫ ---
+        if fire_rocket:
+            fire_rocket = False
+            if not player.on_planet_surface and not player.is_landing:
+                rocket = Rocket(
+                    x=player.x,
+                    y=player.y,
+                    angle=player.angle,
+                    target=locked_target
+                )
+                rocket.set_sprites(rocket_sprites)
+                rockets.append(rocket)
+
         # ВАЖНО: Вызываем update игрока, передавая список объектов.
         hit_asteroid = player.update(world_objects=check_objects)
 
@@ -283,6 +327,15 @@ def main():
                                 if frag is not None:
                                     new_fragments.append(frag)
                         break
+        # --- ОБНОВЛЕНИЕ РАКЕТ ---
+        for rocket in rockets[:]:
+            rocket.update()
+            if rocket.check_hit():
+                rocket.target.take_damage(100)
+                rockets.remove(rocket)
+            elif not rocket.is_active():
+                rockets.remove(rocket)
+
 
         # Добавляем фрагменты в сектор (до cleanup, чтобы они сразу отрисовались)
         if new_fragments and current_sector:
@@ -365,6 +418,16 @@ def main():
                             pygame.draw.circle(screen, (128, 128, 128), (sx, sy), 32, 1)
             for bullet in player.bullets:
                 bullet.draw(screen, camera)
+            # --- ПРИЦЕЛЬНАЯ ПОДСКАЗКА ---
+            if locked_target:
+                sx = int(locked_target.x - camera.x)
+                sy = int(locked_target.y - camera.y)
+                pygame.draw.circle(screen, (255, 0, 0), (sx, sy), 40, 1)
+
+            # --- РАКЕТЫ ---
+            for rocket in rockets:
+                rocket.draw(screen, camera)
+
 
             # --- ПУЛИ ИСТРЕБИТЕЛЯ ---
             for obj in all_objects:
@@ -388,7 +451,6 @@ def main():
 
             # --- DEBUG: ИНДИКАТОР НАПРАВЛЕНИЯ К ИСТРЕБИТЕЛЮ И РАЗВЕДЧИКУ ---
             if show_scout_indicator:
-                from game_objects.enemy import ScoutShip, DestroyerShip
 
                 enemies = []
                 for key, sect in generator.sectors.items():
@@ -478,6 +540,19 @@ def main():
             start_x=hud_start_x,
             y_offset=30
         )
+        # --- ПОЛОСА HP ---
+        bar_width = CAMERA_WIDTH // 3       # половина экрана = 400px
+        bar_height = 2
+        bar_x = CAMERA_WIDTH - 700 # по центру
+        bar_y = CAMERA_HEIGHT - bar_height - 4   # 4px отступ снизу
+
+        # Фон (тёмный)
+        pygame.draw.rect(screen, (40, 0, 0), (bar_x, bar_y, bar_width, bar_height))
+
+        # Текущее HP (красный), пропорционально
+        hp_ratio = max(0, player.hp / player.max_hp)
+        current_width = int(bar_width * hp_ratio)
+        pygame.draw.rect(screen, (255, 0, 0), (bar_x, bar_y, current_width, bar_height))
 
         pygame.display.flip()
         clock.tick(60)
@@ -488,4 +563,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

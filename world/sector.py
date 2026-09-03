@@ -154,9 +154,11 @@ class Sector:
         # --- РАЗВЕДЧИК В КОМНАТЕ (0, 1) ---
         if self.x == 0 and self.y == 1:
             from game_objects.enemy import ScoutShip
-            from sprites import get_scout_sprites
+            from sprites import get_scout_sprites, get_scout_destroyed_sprite
 
             scout_idle, scout_anim = get_scout_sprites()
+            scout_destroyed = get_scout_destroyed_sprite()
+
             start_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
             start_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
 
@@ -171,15 +173,20 @@ class Sector:
                 room_height=ROOM_HEIGHT
             )
             scout.set_sector(self)
+            scout.set_sector(self)
+            scout.set_destroyed_sprite(scout_destroyed)
             self.objects.append(scout)
             print(f"[DEBUG] Разведчик добавлен в комнату ({self.x}, {self.y})")
 
         # --- ИСТРЕБИТЕЛЬ В КОМНАТЕ (-1, 0) ---
         if self.x == -1 and self.y == 0:
             from game_objects.enemy import DestroyerShip
-            from sprites import get_destroyer_sprites
+            from sprites import get_destroyer_sprites, get_destroyer_destroyed_sprite
 
             destroyer_idle, destroyer_anim = get_destroyer_sprites()
+            # Сначала загружаем спрайт обломка в переменную
+            destroyer_destroyed = get_destroyer_destroyed_sprite()
+
             start_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
             start_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
 
@@ -194,11 +201,12 @@ class Sector:
                 room_height=ROOM_HEIGHT
             )
             destroyer.set_sector(self)
+
+            # Теперь безопасно передаём переменную
+            destroyer.set_destroyed_sprite(destroyer_destroyed)
+
             self.objects.append(destroyer)
             print(f"[DEBUG] Истребитель добавлен в комнату ({self.x}, {self.y})")
-
-
-        self.is_generated = True
 
     def generate_belt(self, asteroid_sprites, inner_radius, outer_radius, counts, wreck_sprite=None,
                       planet_sprite=None):

@@ -86,6 +86,9 @@ def get_scout_sprites():
         movement = [idle]
 
     return idle, movement
+def get_scout_destroyed_sprite():
+    return load_image("ships/class_4/scout_destroyed.png")
+
 
 def get_destroyer_sprites():
     """Загружает спрайты для истребителя из class_4."""
@@ -103,6 +106,18 @@ def get_destroyer_sprites():
         movement = [idle]
 
     return idle, movement
+def get_rocket_sprites():
+    """Загружает 4 кадра анимации ракеты."""
+    sprites = []
+    for i in range(1, 5):
+        path = f"projectiles/rocket_mod01_anim{i:02d}.png"
+        sprites.append(load_image(path))
+    return sprites
+
+
+def get_destroyer_destroyed_sprite():
+    """Загружает спрайт уничтоженного истребителя."""
+    return load_image("ships/class_4/destroyer_destroyed.png")
 
 
 
