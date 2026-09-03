@@ -28,6 +28,10 @@ class ScoutShip:
         self.target_pos = None
         self.loiter_timer = 0
         self.loiter_duration = 2500  # мс
+        
+        # Сила отскока астероидов
+        self.collision_force = 8.0
+
 
         # Границы комнаты — абсолютные мировые координаты
         self.room_left = sector_x * room_width
