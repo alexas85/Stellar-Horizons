@@ -1,4 +1,4 @@
-# asteroid.py
+# game_object/asteroid.py
 import math
 import pygame
 import random

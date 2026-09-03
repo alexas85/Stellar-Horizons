@@ -170,6 +170,7 @@ class Sector:
                 room_width=ROOM_WIDTH,
                 room_height=ROOM_HEIGHT
             )
+            scout.set_sector(self)
             self.objects.append(scout)
             print(f"[DEBUG] Разведчик добавлен в комнату ({self.x}, {self.y})")
 

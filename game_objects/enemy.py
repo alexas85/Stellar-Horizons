@@ -40,7 +40,27 @@ class ScoutShip:
         self.animation_timer = 0
         self.is_thrusting = False
 
+        # Ссылка на сектор — для проверки коллизий с астероидами
+        self.sector = None
+
+
         self._update_rect()
+
+    def set_sector(self, sector):
+        """Привязывает сектор, чтобы разведчик видел астероиды."""
+        self.sector = sector
+
+    def apply_impulse_to(self, obj, force):
+        """Толкает астероид от разведчика."""
+        dx = obj.x - self.x
+        dy = obj.y - self.y
+        length = math.hypot(dx, dy)
+        if length == 0:
+            return
+        dx /= length
+        dy /= length
+        obj.apply_knockback(dx * force, dy * force)
+
 
     def _update_rect(self):
         w = self.original_image.get_width()
@@ -138,6 +158,26 @@ class ScoutShip:
         # Движение
         self.x += self.velocity.x
         self.y += self.velocity.y
+
+        # --- ОТСКОКИ ОТ АСТЕРОИДОВ ---
+        if self.sector is not None and hasattr(self.sector, 'asteroids'):
+            scout_rect = pygame.Rect(0, 0, self.rect.width, self.rect.height)
+            scout_rect.center = (int(self.x), int(self.y))
+
+            for ast in self.sector.asteroids:
+                if ast.marked_for_removal:
+                    continue
+                if scout_rect.colliderect(ast.rect):
+                    # Столкновение: обнуляем скорость, толкаем астероид
+                    self.velocity = pygame.math.Vector2(0, 0)
+                    self.is_thrusting = False
+                    self.apply_impulse_to(ast, 8.0)
+                    # Путь заблокирован — выбираем новую точку
+                    self.state = 'PICK_NEW'
+                    break
+
+        # Ограничение по комнате
+        self.x = max(self.room_left, min(self.x, self.room_right))
 
         # Ограничение по комнате
         self.x = max(self.room_left, min(self.x, self.room_right))
