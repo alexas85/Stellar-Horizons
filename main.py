@@ -111,12 +111,19 @@ def main():
     # Константа дистанции подсветки (как ты просил)
     INTERACTION_MAX_DIST = 250
     INTERACTION_MAX_DIST_SQ = INTERACTION_MAX_DIST ** 2
+    # Переменную нужно создать ДО цикла (где-нибудь рядом с running = True)
+    show_scout_indicator = False
 
     while running:
+
         # 1. Обработка событий
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_F3:
+                    show_scout_indicator = not show_scout_indicator
+                    print(f"[DEBUG] Индикатор разведчика: {'ВКЛ' if show_scout_indicator else 'ВЫКЛ'}")
 
         keys = pygame.key.get_pressed()
 
@@ -354,6 +361,62 @@ def main():
             # ОТРИСОВКА ИГРОКА С ЛИНИЕЙ
             # Передаем interaction_target, чтобы draw() мог нарисовать линию
             player.draw(screen, camera.topleft, interaction_target=interaction_target)
+
+            # --- DEBUG: ИНДИКАТОР НАПРАВЛЕНИЯ К РАЗВЕДЧИКУ ---
+            if show_scout_indicator:
+                from game_objects.enemy import ScoutShip
+                scout_pos = None
+                for key, sect in generator.sectors.items():
+                    if hasattr(sect, 'objects') and sect.objects:
+                        for obj in sect.objects:
+                            if isinstance(obj, ScoutShip):
+                                scout_pos = (obj.x, obj.y)
+                                break
+                    if scout_pos:
+                        break
+
+                if scout_pos:
+                    sx, sy = scout_pos
+                    dx = sx - player.x
+                    dy = sy - player.y
+                    dist = math.hypot(dx, dy)
+
+                    # Позиция игрока на экране
+                    psx = player.x - camera.x
+                    psy = player.y - camera.y
+
+                    if dist > 80:
+                        # Нормализованное направление
+                        ndx = dx / dist
+                        ndy = dy / dist
+
+                        # Длина стрелки
+                        arrow_len = 100
+                        ax = psx + ndx * arrow_len
+                        ay = psy + ndy * arrow_len
+
+                        # Линия стрелки (зелёная)
+                        pygame.draw.line(screen, (0, 255, 0), (psx, psy), (ax, ay), 2)
+
+                        # Треугольник на конце
+                        angle = math.atan2(ndy, ndx)
+                        tri = 12
+                        p2 = (ax - math.cos(angle - 0.4) * tri,
+                              ay - math.sin(angle - 0.4) * tri)
+                        p3 = (ax - math.cos(angle + 0.4) * tri,
+                              ay - math.sin(angle + 0.4) * tri)
+                        pygame.draw.polygon(screen, (0, 255, 0), [(ax, ay), p2, p3])
+
+                        # Текст с дистанцией
+                        dist_text = f"Scout: {int(dist)}px"
+                        ts = font_debug.render(dist_text, True, (0, 255, 0))
+                        screen.blit(ts, (ax + 8, ay - 8))
+                    else:
+                        # Разведчик совсем рядом — рисуем зелёный кружок
+                        pygame.draw.circle(screen, (0, 255, 0), (int(psx), int(psy)), 40, 2)
+                        near_text = font_debug.render("SCOUT HERE", True, (0, 255, 0))
+                        screen.blit(near_text, (psx - 35, psy - 55))
+
 
         # --- ОТЛАДКА (текст поверх экрана) ---
         if not player.on_planet_surface:
