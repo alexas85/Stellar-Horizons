@@ -362,61 +362,51 @@ def main():
             # Передаем interaction_target, чтобы draw() мог нарисовать линию
             player.draw(screen, camera.topleft, interaction_target=interaction_target)
 
-            # --- DEBUG: ИНДИКАТОР НАПРАВЛЕНИЯ К РАЗВЕДЧИКУ ---
+            # --- DEBUG: ИНДИКАТОР НАПРАВЛЕНИЯ К ИСТРЕБИТЕЛЮ И РАЗВЕДЧИКУ ---
             if show_scout_indicator:
-                from game_objects.enemy import ScoutShip
-                scout_pos = None
+                from game_objects.enemy import ScoutShip, DestroyerShip
+
+                enemies = []
                 for key, sect in generator.sectors.items():
                     if hasattr(sect, 'objects') and sect.objects:
                         for obj in sect.objects:
-                            if isinstance(obj, ScoutShip):
-                                scout_pos = (obj.x, obj.y)
-                                break
-                    if scout_pos:
-                        break
+                            if isinstance(obj, (ScoutShip, DestroyerShip)):
+                                label = "Scout" if isinstance(obj, ScoutShip) else "Destroyer"
+                                color = (0, 255, 0) if isinstance(obj, ScoutShip) else (255, 100, 0)
+                                enemies.append((obj.x, obj.y, label, color))
 
-                if scout_pos:
-                    sx, sy = scout_pos
-                    dx = sx - player.x
-                    dy = sy - player.y
+                psx = player.x - camera.x
+                psy = player.y - camera.y
+
+                for ex, ey, label, color in enemies:
+                    dx = ex - player.x
+                    dy = ey - player.y
                     dist = math.hypot(dx, dy)
 
-                    # Позиция игрока на экране
-                    psx = player.x - camera.x
-                    psy = player.y - camera.y
-
                     if dist > 80:
-                        # Нормализованное направление
                         ndx = dx / dist
                         ndy = dy / dist
-
-                        # Длина стрелки
                         arrow_len = 100
                         ax = psx + ndx * arrow_len
                         ay = psy + ndy * arrow_len
 
-                        # Линия стрелки (зелёная)
-                        pygame.draw.line(screen, (0, 255, 0), (psx, psy), (ax, ay), 2)
+                        pygame.draw.line(screen, color, (psx, psy), (ax, ay), 2)
 
-                        # Треугольник на конце
                         angle = math.atan2(ndy, ndx)
                         tri = 12
                         p2 = (ax - math.cos(angle - 0.4) * tri,
                               ay - math.sin(angle - 0.4) * tri)
                         p3 = (ax - math.cos(angle + 0.4) * tri,
                               ay - math.sin(angle + 0.4) * tri)
-                        pygame.draw.polygon(screen, (0, 255, 0), [(ax, ay), p2, p3])
+                        pygame.draw.polygon(screen, color, [(ax, ay), p2, p3])
 
-                        # Текст с дистанцией
-                        dist_text = f"Scout: {int(dist)}px"
-                        ts = font_debug.render(dist_text, True, (0, 255, 0))
+                        dist_text = f"{label}: {int(dist)}px"
+                        ts = font_debug.render(dist_text, True, color)
                         screen.blit(ts, (ax + 8, ay - 8))
                     else:
-                        # Разведчик совсем рядом — рисуем зелёный кружок
-                        pygame.draw.circle(screen, (0, 255, 0), (int(psx), int(psy)), 40, 2)
-                        near_text = font_debug.render("SCOUT HERE", True, (0, 255, 0))
-                        screen.blit(near_text, (psx - 35, psy - 55))
-
+                        pygame.draw.circle(screen, color, (int(psx), int(psy)), 40, 2)
+                        near_text = font_debug.render(f"{label.upper()} HERE", True, color)
+                        screen.blit(near_text, (psx - 45, psy - 55))
 
         # --- ОТЛАДКА (текст поверх экрана) ---
         if not player.on_planet_surface:

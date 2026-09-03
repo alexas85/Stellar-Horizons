@@ -174,6 +174,30 @@ class Sector:
             self.objects.append(scout)
             print(f"[DEBUG] Разведчик добавлен в комнату ({self.x}, {self.y})")
 
+        # --- ИСТРЕБИТЕЛЬ В КОМНАТЕ (-1, 0) ---
+        if self.x == -1 and self.y == 0:
+            from game_objects.enemy import DestroyerShip
+            from sprites import get_destroyer_sprites
+
+            destroyer_idle, destroyer_anim = get_destroyer_sprites()
+            start_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
+            start_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
+
+            destroyer = DestroyerShip(
+                x=start_x,
+                y=start_y,
+                idle_sprite=destroyer_idle,
+                movement_sprites=destroyer_anim,
+                sector_x=self.x,
+                sector_y=self.y,
+                room_width=ROOM_WIDTH,
+                room_height=ROOM_HEIGHT
+            )
+            destroyer.set_sector(self)
+            self.objects.append(destroyer)
+            print(f"[DEBUG] Истребитель добавлен в комнату ({self.x}, {self.y})")
+
+
         self.is_generated = True
 
     def generate_belt(self, asteroid_sprites, inner_radius, outer_radius, counts, wreck_sprite=None,

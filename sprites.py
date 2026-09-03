@@ -87,6 +87,24 @@ def get_scout_sprites():
 
     return idle, movement
 
+def get_destroyer_sprites():
+    """Загружает спрайты для истребителя из class_4."""
+    folder = "ships/class_4"
+
+    idle_path = f"{folder}/destroyer_idle.png"
+    idle = load_image(idle_path)
+
+    movement = []
+    for i in range(1, 4):
+        anim_path = f"{folder}/destroyer_anim{i:02d}.png"
+        movement.append(load_image(anim_path))
+
+    if not movement:
+        movement = [idle]
+
+    return idle, movement
+
+
 
 
 

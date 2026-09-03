@@ -171,7 +171,7 @@ class ScoutShip:
                     # Столкновение: обнуляем скорость, толкаем астероид
                     self.velocity = pygame.math.Vector2(0, 0)
                     self.is_thrusting = False
-                    self.apply_impulse_to(ast, 8.0)
+                    self.apply_impulse_to(ast, self.collision_force)
                     # Путь заблокирован — выбираем новую точку
                     self.state = 'PICK_NEW'
                     break
@@ -225,3 +225,20 @@ class ScoutShip:
         rotated = pygame.transform.rotate(self.original_image, -self.angle)
         rect = rotated.get_rect(center=(int(draw_x), int(draw_y)))
         surface.blit(rotated, rect)
+
+class DestroyerShip(ScoutShip):
+    """Истребитель — быстрее, сильнее бьёт, меньше зависает."""
+
+    def __init__(self, x, y, idle_sprite, movement_sprites, sector_x, sector_y, room_width, room_height):
+        super().__init__(x, y, idle_sprite, movement_sprites, sector_x, sector_y, room_width, room_height)
+
+        # Перенастройка физики
+        self.max_speed = 7.5          # быстрее разведчика (6.0)
+        self.max_angular_velocity = 3.5  # чуть резче поворачивает
+        self.turn_acceleration = 0.3
+
+        # Короче зависает — более агрессивный патруль
+        self.loiter_duration = 1200   # мс (разведчик: 2500)
+
+        # Сила отскока астероидов
+        self.collision_force = 14.0   # разведчик: 8.0, игрок: 12.0
