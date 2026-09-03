@@ -3,6 +3,8 @@ import pygame
 import math
 import random
 from config import SHIP_ACCELERATION, SHIP_FRICTION
+from game_objects.bullet import Bullet
+
 
 
 class ScoutShip:
@@ -28,7 +30,7 @@ class ScoutShip:
         self.target_pos = None
         self.loiter_timer = 0
         self.loiter_duration = 2500  # мс
-        
+
         # Сила отскока астероидов
         self.collision_force = 8.0
 
@@ -110,7 +112,7 @@ class ScoutShip:
             else:
                 self.angular_velocity -= self.turn_acceleration
 
-    def update(self, dt_ms=0):
+    def update(self, dt_ms=0, target=None):
         if self.state == 'PICK_NEW':
             self.pick_new_target()
             return
@@ -231,18 +233,143 @@ class ScoutShip:
         surface.blit(rotated, rect)
 
 class DestroyerShip(ScoutShip):
-    """Истребитель — быстрее, сильнее бьёт, меньше зависает."""
+    """Истребитель — патрулирует, а при сближении игрока — преследует и стреляет."""
+
+    # Спрайт пули — устанавливается из main.py
+    bullet_sprite = None
+
+    @classmethod
+    def set_bullet_sprite(cls, sprite):
+        cls.bullet_sprite = sprite
 
     def __init__(self, x, y, idle_sprite, movement_sprites, sector_x, sector_y, room_width, room_height):
         super().__init__(x, y, idle_sprite, movement_sprites, sector_x, sector_y, room_width, room_height)
 
         # Перенастройка физики
-        self.max_speed = 7.5          # быстрее разведчика (6.0)
-        self.max_angular_velocity = 3.5  # чуть резче поворачивает
+        self.max_speed = 7.5
+        self.max_angular_velocity = 3.5
         self.turn_acceleration = 0.3
+        self.loiter_duration = 1200
+        self.collision_force = 14.0
 
-        # Короче зависает — более агрессивный патруль
-        self.loiter_duration = 1200   # мс (разведчик: 2500)
+        # Боевые параметры
+        self.detect_range = 300      # дистанция обнаружения игрока
+        self.keep_distance = 150     # минимальная дистанция, ближе не подлетает
+        self.fire_cooldown = 0
+        self.cooldown_time = 400     # мс между выстрелами
+        self.bullets = []
+        self.combat_target = None
 
-        # Сила отскока астероидов
-        self.collision_force = 14.0   # разведчик: 8.0, игрок: 12.0
+    def shoot(self):
+        """Стреляет пулю в текущем направлении носа корабля."""
+        if self.bullet_sprite is None:
+            return
+
+        current_time = pygame.time.get_ticks()
+        if self.fire_cooldown > 0 and current_time < self.fire_cooldown:
+            return
+
+        new_bullet = Bullet(
+            x=self.x,
+            y=self.y,
+            angle=self.angle,
+            speed=10,
+            max_distance=400,
+            base_velocity=self.velocity
+        )
+        new_bullet.set_sprite(self.bullet_sprite)
+        self.bullets.append(new_bullet)
+        self.fire_cooldown = current_time + self.cooldown_time
+
+    def update(self, dt_ms=0, target=None):
+        """Обновление с боевой логикой. target — объект игрока (или None)."""
+        # Проверка: виден ли игрок?
+        if target is not None:
+            dx = target.x - self.x
+            dy = target.y - self.y
+            dist = math.hypot(dx, dy)
+
+            if dist <= self.detect_range:
+                self.state = 'COMBAT'
+                self.combat_target = target
+            elif self.state == 'COMBAT':
+                # Игрок убежал — возвращаемся к патрулю
+                self.state = 'PICK_NEW'
+                self.combat_target = None
+
+        # Боевой режим — своя логика, не вызываем родительский update
+        if self.state == 'COMBAT' and self.combat_target is not None:
+            self._update_combat()
+            self._update_animation()
+            self._update_rect()
+            return
+
+        # Обычный патруль — родительская логика
+        super().update(dt_ms)
+
+    def _update_combat(self):
+        """Логика боя: преследование, удержание дистанции, стрельба."""
+        target = self.combat_target
+        dx = target.x - self.x
+        dy = target.y - self.y
+        dist = math.hypot(dx, dy)
+
+        # Угол к игроку
+        target_angle = math.degrees(math.atan2(dy, dx))
+        self.rotate_towards(target_angle)
+
+        # Движение: если далеко — ускоряемся, если близко — тормозим
+        if dist > self.keep_distance:
+            rad = math.radians(self.angle)
+            direction = pygame.math.Vector2(math.cos(rad), math.sin(rad))
+            self.velocity += direction * SHIP_ACCELERATION
+            if self.velocity.length() > self.max_speed:
+                self.velocity.scale_to_length(self.max_speed)
+            self.is_thrusting = True
+        else:
+            # Близко — гасим скорость
+            self.is_thrusting = False
+
+        # Трение
+        self.velocity *= SHIP_FRICTION
+        self.angular_velocity *= 0.95
+        if abs(self.angular_velocity) < 0.01:
+            self.angular_velocity = 0.0
+
+        # Движение
+        self.x += self.velocity.x
+        self.y += self.velocity.y
+
+        # Ограничение по комнате
+        self.x = max(self.room_left, min(self.x, self.room_right))
+        self.y = max(self.room_top, min(self.y, self.room_bottom))
+
+        # Угол
+        self.angle += self.angular_velocity
+        if self.angle > 360:
+            self.angle -= 360
+        elif self.angle < 0:
+            self.angle += 360
+
+        # Стрельба (с проверкой, что нос направлен примерно к игроку)
+        angle_diff = target_angle - self.angle
+        while angle_diff > 180:
+            angle_diff -= 360
+        while angle_diff < -180:
+            angle_diff += 360
+        if abs(angle_diff) < 30:  # стреляем только если нос смотрит на игрока
+            self.shoot()
+
+        # Отскоки от астероидов
+        if self.sector is not None and hasattr(self.sector, 'asteroids'):
+            scout_rect = pygame.Rect(0, 0, self.rect.width, self.rect.height)
+            scout_rect.center = (int(self.x), int(self.y))
+
+            for ast in self.sector.asteroids:
+                if ast.marked_for_removal:
+                    continue
+                if scout_rect.colliderect(ast.rect):
+                    self.velocity = pygame.math.Vector2(0, 0)
+                    self.is_thrusting = False
+                    self.apply_impulse_to(ast, self.collision_force)
+                    break

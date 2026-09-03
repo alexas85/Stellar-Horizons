@@ -13,6 +13,8 @@ from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
 from config import RESOURCE_ICONS
+from game_objects.enemy import DestroyerShip
+
 from game_objects.bullet import Bullet
 
 
@@ -69,6 +71,9 @@ def main():
     bullet_sprite = None
     try:
         bullet_sprite = pygame.image.load(bullet_path).convert_alpha()
+        from game_objects.enemy import DestroyerShip
+        DestroyerShip.set_bullet_sprite(bullet_sprite)
+
         print(f"[SUCCESS] Спрайт выстрела загружен: {bullet_path}")
     except FileNotFoundError:
         print("[WARNING] Не удалось найти выстрел. Используется заглушка.")
@@ -332,7 +337,10 @@ def main():
                     continue
 
                 if hasattr(obj, 'update'):
-                    obj.update()
+                    if isinstance(obj, DestroyerShip):
+                        obj.update(target=player)
+                    else:
+                        obj.update()
 
                 show_highlight = False
                 if (hasattr(obj, 'x') and hasattr(obj, 'y') and hasattr(obj, 'highlight_radius')):
@@ -357,6 +365,22 @@ def main():
                             pygame.draw.circle(screen, (128, 128, 128), (sx, sy), 32, 1)
             for bullet in player.bullets:
                 bullet.draw(screen, camera)
+
+            # --- ПУЛИ ИСТРЕБИТЕЛЯ ---
+            for obj in all_objects:
+                if isinstance(obj, DestroyerShip):
+                    # Обновление пуль
+                    for bullet in obj.bullets[:]:
+                        bullet.update()
+                        if not bullet.is_active():
+                            obj.bullets.remove(bullet)
+                        elif bullet.rect.colliderect(player.rect):
+                            player.take_damage(bullet.damage)
+                            obj.bullets.remove(bullet)
+                    # Отрисовка пуль
+                    for bullet in obj.bullets:
+                        bullet.draw(screen, camera)
+
 
             # ОТРИСОВКА ИГРОКА С ЛИНИЕЙ
             # Передаем interaction_target, чтобы draw() мог нарисовать линию
@@ -424,6 +448,7 @@ def main():
         info_text = (
             f"{room_text} | "
             f"Mode: {mode_text} | "
+            f"HP: {player.hp}/{player.max_hp} | "
             f"Pos: {int(player.x)}, {int(player.y)} | "
             f"Angle: {int(player.angle)} | "
             f"Asteroids: {count} | Bullets: {len(player.bullets)}"

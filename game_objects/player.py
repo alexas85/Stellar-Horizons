@@ -63,6 +63,10 @@ class PlayerShip:
             "mineral": 0,
             "uranium": 0
         }
+        # Здоровье
+        self.hp = 100
+        self.max_hp = 100
+
 
         # --- НОВЫЕ ПОЛЯ ДЛЯ МЕХАНИКИ СБОРА ---
         self.collecting_asteroid = None      # ссылка на астероид, который сейчас добываем
@@ -150,6 +154,14 @@ class PlayerShip:
         self.bullets.append(new_bullet)
         self.fire_cooldown = current_time + self.cooldown_time
         return new_bullet
+
+    def take_damage(self, amount):
+        """Получение урона."""
+        self.hp -= amount
+        if self.hp < 0:
+            self.hp = 0
+        print(f"[DAMAGE] HP: {self.hp}/{self.max_hp}")
+
 
     def apply_impulse_to(self, obj, force):
         dx = obj.x - self.x
