@@ -37,8 +37,14 @@ class ScoutShip:
         self.hp = 50
         self.is_destroyed = False
         self.destroyed_sprite = None
+        self.combat_target = None
 
 
+        # Облёт препятствий
+        self.obstacle_scan_range = 300    # дистанция обнаружения астероида
+        self.avoidance_angle = 0          # текущий угол уклонения (0 = не уклоняется)
+        self.avoidance_direction = 1      # 1 = вправо, -1 = влево
+        self.avoidance_decay = 0.95       # как быстро затухает уклонение
 
         # Границы комнаты — абсолютные мировые координаты
         self.room_left = sector_x * room_width
@@ -71,6 +77,69 @@ class ScoutShip:
         dx /= length
         dy /= length
         obj.apply_knockback(dx * force, dy * force)
+
+    def _check_obstacles_ahead(self):
+        """Проверяет астероиды на пути и задаёт угол уклонения."""
+        if self.sector is None or not hasattr(self.sector, 'asteroids'):
+            return
+
+        if not self.sector.asteroids:
+            return
+
+        # Текущий вектор направления движения
+        rad = math.radians(self.angle)
+        dir_x = math.cos(rad)
+        dir_y = math.sin(rad)
+
+        closest_dist = self.obstacle_scan_range
+        closest_obstacle = None
+        closest_side = 1  # по умолчанию уклоняемся вправо
+
+        for ast in self.sector.asteroids:
+            if ast.marked_for_removal:
+                continue
+
+            dx = ast.x - self.x
+            dy = ast.y - self.y
+            dist = math.hypot(dx, dy)
+
+            if dist > self.obstacle_scan_range or dist < 1:
+                continue
+
+            # Проекция вектора «к астероиду» на вектор направления корабля
+            forward_proj = dx * dir_x + dy * dir_y
+
+            # Астероид позади — пропускаем
+            if forward_proj < 0:
+                continue
+
+            # Боковое отклонение (перпендикуляр к курсу)
+            perp_x = -dir_y
+            perp_y = dir_x
+            side_offset = dx * perp_x + dy * perp_y
+
+            # Радиус астероида (приблизительно по размеру rect)
+            ast_radius = max(ast.rect.width, ast.rect.height) / 2 if hasattr(ast, 'rect') else 20
+
+            # «Коридор» — если астероид в пределах коридора впереди
+            if abs(side_offset) < ast_radius + 30:
+                if forward_proj < closest_dist:
+                    closest_dist = forward_proj
+                    closest_obstacle = ast
+                    # Выбираем сторону уклонения: туда, где астероид меньше мешает
+                    closest_side = -1 if side_offset > 0 else 1
+
+        if closest_obstacle is not None:
+            # Чем ближе астероид, тем сильнее уклонение
+            urgency = 1.0 - (closest_dist / self.obstacle_scan_range)
+            self.avoidance_angle = closest_side * urgency * 45  # до 45° отклонения
+            self.avoidance_direction = closest_side
+        else:
+            # Постепенно возвращаемся к курсу
+            self.avoidance_angle *= self.avoidance_decay
+            if abs(self.avoidance_angle) < 0.5:
+                self.avoidance_angle = 0
+
 
 
     def _update_rect(self):
@@ -137,7 +206,9 @@ class ScoutShip:
             target_angle = math.degrees(math.atan2(dy, dx))
 
         if self.state == 'SEEK':
-            self.rotate_towards(target_angle)
+            self._check_obstacles_ahead()
+            effective_angle = target_angle + self.avoidance_angle
+            self.rotate_towards(effective_angle)
             rad = math.radians(self.angle)
             direction = pygame.math.Vector2(math.cos(rad), math.sin(rad))
             self.velocity += direction * SHIP_ACCELERATION
@@ -149,12 +220,15 @@ class ScoutShip:
                 self.state = 'ARRIVE'
 
         elif self.state == 'ARRIVE':
-            self.rotate_towards(target_angle)
+            self._check_obstacles_ahead()
+            effective_angle = target_angle + self.avoidance_angle
+            self.rotate_towards(effective_angle)
             self.is_thrusting = False
 
             if self.velocity.length() < 0.5 or dist_to_target < 60:
                 self.state = 'LOITER'
                 self.loiter_timer = pygame.time.get_ticks()
+
 
         elif self.state == 'LOITER':
             self.is_thrusting = False
@@ -191,9 +265,6 @@ class ScoutShip:
                     # Путь заблокирован — выбираем новую точку
                     self.state = 'PICK_NEW'
                     break
-
-        # Ограничение по комнате
-        self.x = max(self.room_left, min(self.x, self.room_right))
 
         # Ограничение по комнате
         self.x = max(self.room_left, min(self.x, self.room_right))
