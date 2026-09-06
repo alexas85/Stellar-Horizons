@@ -3,8 +3,8 @@
 # Размеры мира и экрана
 ROOM_WIDTH = 4000
 ROOM_HEIGHT = 4000
-CAMERA_WIDTH = 800
-CAMERA_HEIGHT = 600
+CAMERA_WIDTH = 1280
+CAMERA_HEIGHT = 720
 
 # Параметры комнаты «на поверхности планеты»
 PLANET_ROOM_WIDTH = 1280

@@ -36,6 +36,7 @@ class ScoutShip:
         # Здоровье и уничтожение
         self.hp = 50
         self.is_destroyed = False
+        self.physics_active = True
         self.destroyed_sprite = None
         self.combat_target = None
 
@@ -56,6 +57,7 @@ class ScoutShip:
         self.animation_index = 0
         self.animation_timer = 0
         self.is_thrusting = False
+
 
         # Ссылка на сектор — для проверки коллизий с астероидами
         self.sector = None
@@ -331,7 +333,7 @@ class ScoutShip:
                 self.original_image = self.destroyed_sprite
 
     def _drift_destroyed(self):
-        """Дрейф уничтоженного корабля."""
+        """Дрейф уничтоженного корабля с сохранением коллизий с астероидами."""
         self.velocity *= SHIP_FRICTION
         self.angular_velocity *= 0.95
         if abs(self.angular_velocity) < 0.01:
@@ -345,6 +347,27 @@ class ScoutShip:
             self.angle -= 360
         elif self.angle < 0:
             self.angle += 360
+
+        # --- КОЛЛИЗИИ С АСТЕРОИДАМИ (работают даже после уничтожения) ---
+        if self.sector is not None and hasattr(self.sector, 'asteroids'):
+            scout_rect = pygame.Rect(0, 0, self.rect.width, self.rect.height)
+            scout_rect.center = (int(self.x), int(self.y))
+
+            for ast in self.sector.asteroids:
+                if ast.marked_for_removal:
+                    continue
+                if scout_rect.colliderect(ast.rect):
+                    # Уничтоженный корабль всё ещё толкает астероиды
+                    self.apply_impulse_to(ast, self.collision_force)
+                    # И получает отскок сам
+                    dx = ast.x - self.x
+                    dy = ast.y - self.y
+                    dist = math.hypot(dx, dy)
+                    if dist > 0:
+                        self.velocity.x -= (dx / dist) * 2.0
+                        self.velocity.y -= (dy / dist) * 2.0
+                    break
+
         self._update_animation()
         self._update_rect()
 
