@@ -8,7 +8,7 @@ import random
 from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
 from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
 from game_objects.static_ship import StaticShip
-from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites
+from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites, get_rocket_sprites, get_explosion_sprites
 from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
@@ -16,6 +16,8 @@ from config import RESOURCE_ICONS
 from game_objects.rocket import Rocket
 from game_objects.enemy import DestroyerShip, ScoutShip
 from sprites import get_rocket_sprites
+from game_objects.explosion import Explosion
+
 
 from game_objects.enemy import DestroyerShip
 
@@ -78,6 +80,8 @@ def main():
         from game_objects.enemy import DestroyerShip
         DestroyerShip.set_bullet_sprite(bullet_sprite)
         rocket_sprites = get_rocket_sprites()
+        explosion_sprites = get_explosion_sprites()
+        explosions = []
 
         print(f"[SUCCESS] Спрайт выстрела загружен: {bullet_path}")
     except FileNotFoundError:
@@ -331,11 +335,18 @@ def main():
         for rocket in rockets[:]:
             rocket.update()
             if rocket.check_hit():
+                # Взрыв на месте ракеты
+                explosions.append(Explosion(rocket.x, rocket.y, explosion_sprites))
                 rocket.target.take_damage(100)
                 rockets.remove(rocket)
             elif not rocket.is_active():
                 rockets.remove(rocket)
 
+        # --- ОБНОВЛЕНИЕ ВЗРЫВОВ ---
+        for exp in explosions[:]:
+            exp.update()
+            if exp.done:
+                explosions.remove(exp)
 
         # Добавляем фрагменты в сектор (до cleanup, чтобы они сразу отрисовались)
         if new_fragments and current_sector:
@@ -428,6 +439,9 @@ def main():
             for rocket in rockets:
                 rocket.draw(screen, camera)
 
+            # --- ВЗРЫВЫ ---
+            for exp in explosions:
+                exp.draw(screen, camera)
 
             # --- ПУЛИ ИСТРЕБИТЕЛЯ ---
             for obj in all_objects:

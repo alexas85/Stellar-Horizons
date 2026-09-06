@@ -132,7 +132,7 @@ class ScoutShip:
         if closest_obstacle is not None:
             # Чем ближе астероид, тем сильнее уклонение
             urgency = 1.0 - (closest_dist / self.obstacle_scan_range)
-            self.avoidance_angle = closest_side * urgency * 45  # до 45° отклонения
+            self.avoidance_angle = closest_side * urgency * 60  # до 45° отклонения
             self.avoidance_direction = closest_side
         else:
             # Постепенно возвращаемся к курсу

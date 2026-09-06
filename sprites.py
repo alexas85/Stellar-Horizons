@@ -114,6 +114,15 @@ def get_rocket_sprites():
         sprites.append(load_image(path))
     return sprites
 
+def get_explosion_sprites():
+    """Загружает 10 кадров анимации взрыва."""
+    sprites = []
+    for i in range(1, 11):
+        path = f"explosions/expl_{i:02d}.png"
+        sprites.append(load_image(path))
+    return sprites
+
+
 
 def get_destroyer_destroyed_sprite():
     """Загружает спрайт уничтоженного истребителя."""
