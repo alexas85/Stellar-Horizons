@@ -12,6 +12,7 @@ from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites, get
 from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
+from game_objects.station import Station
 from config import RESOURCE_ICONS
 from game_objects.rocket import Rocket
 from game_objects.enemy import DestroyerShip, ScoutShip
@@ -72,6 +73,14 @@ def main():
         print(f"[SUCCESS] Спрайт планеты загружен: {planet_path}")
     except FileNotFoundError:
         print(f"[ERROR] Не удалось найти спрайт планеты: {planet_path}")
+
+    station_path = "assets/stations/station_fuel_256px.png"
+    station_sprite = None
+    try:
+        station_sprite = pygame.image.load(station_path).convert_alpha()
+        print(f"[SUCCESS] Спрайт станции загружен: {station_path}")
+    except FileNotFoundError:
+        print(f"[ERROR] Не удалось найти спрайт станции по пути: {station_path}")
 
     bullet_path = "assets/projectiles/shot_16px_mod1.png"
     bullet_sprite = None
@@ -151,12 +160,13 @@ def main():
         # --- ЛОГИКА КНОПКИ ДЕЙСТВИЯ (E) ---
         interaction_target = None
 
-        if (not player.on_planet_surface and not player.is_landing and keys[pygame.K_e]):
+        if (not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and
+                keys[pygame.K_e]):
 
             room_x = int(player.x // ROOM_WIDTH)
             room_y = int(player.y // ROOM_HEIGHT)
             sector = generator.get_sector(room_x, room_y, asteroid_sprites,
-                                          wreck_sprite=wreck_sprite, planet_sprite=planet_sprite)
+                                          wreck_sprite=wreck_sprite, planet_sprite=planet_sprite, station_sprite=station_sprite)
 
             near_planet = None
 
@@ -175,37 +185,56 @@ def main():
                 player.start_landing(near_planet)
                 interaction_target = near_planet
             else:
-                # 2. Добыча астероида
-                closest_asteroid = None
-                closest_dist_sq = float('inf')
+# 2. Станция (стыковка)
+                near_station = None
+                if sector and sector.objects:
+                    for obj in sector.objects:
+                        if isinstance(obj, Station):
+                            dist_sq = (obj.x - player.x) ** 2 + (obj.y - player.y) ** 2
+                            radius_sq = obj.highlight_radius ** 2
+                            if dist_sq <= radius_sq:
+                                near_station = obj
+                                break
 
-                if sector and sector.asteroids:
-                    for ast in sector.asteroids:
-                        # Быстрая проверка дистанции (150px)
-                        dx = ast.x - player.x
-                        dy = ast.y - player.y
-                        d_sq = dx * dx + dy * dy
+                if near_station:
+                    player.start_docking(near_station)
+                    interaction_target = near_station
+                    print("[ACTION] Стыковка со станцией")
+                else:
+                    # 3. Добыча астероида
+                    closest_asteroid = None
+                    closest_dist_sq = float('inf')
 
-                        # Условие: дистанция <= 150^2 И тип mod04 И размер 16px
-                        if d_sq <= (150 ** 2):
-                            if ast.type_key.startswith("ast_mod04") and ast.size_px == 16:
-                                if d_sq < closest_dist_sq:
-                                    closest_dist_sq = d_sq
-                                    closest_asteroid = ast
+                    if sector and sector.asteroids:
+                        for ast in sector.asteroids:
+                            dx = ast.x - player.x
+                            dy = ast.y - player.y
+                            d_sq = dx * dx + dy * dy
 
-                if closest_asteroid:
-                    started = player.try_start_collection(closest_asteroid)
-                    if started:
-                        print(f"[ACTION] Добыча начата с {closest_asteroid.type_key}")
-                    interaction_target = closest_asteroid
+                            if d_sq <= (150 ** 2):
+                                if ast.type_key.startswith("ast_mod04") and ast.size_px == 16:
+                                    if d_sq < closest_dist_sq:
+                                        closest_dist_sq = d_sq
+                                        closest_asteroid = ast
+
+                    if closest_asteroid:
+                        started = player.try_start_collection(closest_asteroid)
+                        if started:
+                            print(f"[ACTION] Добыча начата с {closest_asteroid.type_key}")
+                        interaction_target = closest_asteroid
 
         # --- КНОПКА ОТКАТА (Q) ---
+        if keys[pygame.K_q] and (player.is_docking or player.is_docked):
+            player.stop_docking()
+            print("[ACTION] Отстыковка от станции")
+
         if keys[pygame.K_q] and player.on_planet_surface:
             player.exit_planet(*last_space_pos)
             print("[ACTION] Выход в космос")
 
         # Вращение и ускорение — ТОЛЬКО в космосе
-        if not player.on_planet_surface and not player.is_landing:
+        if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked:
+
             if keys[pygame.K_a]:
                 player.rotate(-1)
             if keys[pygame.K_d]:
@@ -214,7 +243,7 @@ def main():
                 player.accelerate()
 
         # СТРЕЛЬБА (Пробел)
-        if keys[pygame.K_SPACE]:
+        if keys[pygame.K_SPACE] and not player.is_docking and not player.is_docked:
             player.shoot(bullet_sprite)
 
         # --- ЛОГИКА ИГРЫ (физика, коллизии, генерация) ---
@@ -239,17 +268,17 @@ def main():
 
             if should_preload:
                 generator.preload_neighbors(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
-                                            planet_sprite=planet_sprite)
+                                            planet_sprite=planet_sprite, station_sprite=station_sprite)
 
             current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
-                                                  planet_sprite=planet_sprite)
+                                                  planet_sprite=planet_sprite, station_sprite=station_sprite)
 
             if current_sector and current_sector.asteroids:
                 check_objects = current_sector.asteroids
 
         # --- ЗАХВАТ ЦЕЛИ ДЛЯ РАКЕТЫ ---
         locked_target = None
-        if current_sector and not player.on_planet_surface and not player.is_landing:
+        if current_sector and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked:
             for obj in current_sector.objects:
                 if isinstance(obj, (ScoutShip, DestroyerShip)) and not obj.is_destroyed:
                     dx = obj.x - player.x
@@ -269,7 +298,7 @@ def main():
         # --- ЗАПУСК РАКЕТЫ ---
         if fire_rocket:
             fire_rocket = False
-            if not player.on_planet_surface and not player.is_landing:
+            if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked:
                 rocket = Rocket(
                     x=player.x,
                     y=player.y,
@@ -414,7 +443,7 @@ def main():
                         show_highlight = True
 
                 if hasattr(obj, 'draw'):
-                    if isinstance(obj, (StaticShip, StaticPlanet)):
+                    if isinstance(obj, (StaticShip, StaticPlanet, Station)):
                         obj.draw(screen, camera, show_highlight=show_highlight)
                     else:
                         obj.draw(screen, camera)
@@ -520,7 +549,15 @@ def main():
         if current_sector and current_sector.asteroids:
             count = sum(1 for a in current_sector.asteroids if not isinstance(a, list))
 
-        mode_text = "PLANET" if player.on_planet_surface else "SPACE"
+        if player.on_planet_surface:
+            mode_text = "PLANET"
+        elif player.is_docking:
+            mode_text = "DOCKING"
+        elif player.is_docked:
+            mode_text = "DOCKED"
+        else:
+            mode_text = "SPACE"
+
         info_text = (
             f"{room_text} | "
             f"Mode: {mode_text} | "

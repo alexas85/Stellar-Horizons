@@ -4,8 +4,6 @@ import math
 import random
 from config import SHIP_ACCELERATION
 from game_objects.bullet import Bullet
-from game_objects.asteroid import Asteroid
-
 
 
 class PlayerShip:
@@ -29,6 +27,16 @@ class PlayerShip:
         self.landing_speed = 0.005
         self.landing_move_speed = 0.7
         self.landing_target = None
+
+        # --- СТЫКОВКА СО СТАНЦИЕЙ ---
+        self.is_docking = False          # анимация прилёта к станции
+        self.is_docked = False           # уже пристыкован, вращается со станцией
+        self.docked_station = None       # ссылка на объект Station
+        self.docking_progress = 0.0      # прогресс анимации стыковки (0..1)
+        self.docking_speed = 0.015       # скорость анимации стыковки
+        self.dock_offset = 0             # расстояние от центра станции до корабля
+        self.docking_start_pos = None    # позиция корабля в момент начала стыковки
+        self.docking_start_angle = 0.0   # угол корабля в момент начала стыковки
 
         # Физика вращения
         self.angular_velocity = 0.0
@@ -67,14 +75,12 @@ class PlayerShip:
         self.hp = 100
         self.max_hp = 100
 
-
-        # --- НОВЫЕ ПОЛЯ ДЛЯ МЕХАНИКИ СБОРА ---
-        self.collecting_asteroid = None      # ссылка на астероид, который сейчас добываем
-        self.collection_start_time = 0.0    # время начала текущего сбора (в мс)
-        self.is_collecting = False           # флаг: игрок прямо сейчас добывает ресурс
+        # --- МЕХАНИКА СБОРА ---
+        self.collecting_asteroid = None
+        self.collection_start_time = 0.0
+        self.is_collecting = False
 
     def rotate(self, direction):
-        """Плавное вращение корабля"""
         target_angular_velocity = direction * self.max_angular_velocity
         if abs(self.angular_velocity - target_angular_velocity) < self.turn_acceleration:
             self.angular_velocity = target_angular_velocity
@@ -85,7 +91,6 @@ class PlayerShip:
                 self.angular_velocity -= self.turn_acceleration
 
     def accelerate(self):
-        """Ускорение в направлении носа корабля"""
         rad = math.radians(self.angle)
         direction = pygame.math.Vector2(math.cos(rad), math.sin(rad))
         self.velocity += direction * SHIP_ACCELERATION
@@ -94,7 +99,6 @@ class PlayerShip:
         self.is_thrusting = True
 
     def start_landing(self, planet=None):
-        """Начало посадки на планету"""
         self.is_landing = True
         self.landing_progress = 0.0
         self.on_planet_surface = False
@@ -111,7 +115,6 @@ class PlayerShip:
             )
 
     def exit_planet(self, return_x, return_y):
-        """Выход с планеты в космос"""
         self.on_planet_surface = False
         self.is_landing = False
         self.x = return_x
@@ -122,14 +125,103 @@ class PlayerShip:
         self.is_thrusting = False
         self.landing_target = None
         self.target_scale = 1.0
-        # Сброс состояния сбора при выходе с планеты
         self.stop_collection()
         self._update_rect()
 
+    # ================================================================
+    #  СТЫКОВКА
+    # ================================================================
+
+    def start_docking(self, station):
+        """Запуск анимации медленной стыковки со станцией."""
+        self.is_docking = True
+        self.is_docked = False
+        self.docked_station = station
+        self.velocity = pygame.math.Vector2(0, 0)
+        self.angular_velocity = 0.0
+        self.is_thrusting = False
+        self.stop_collection()
+
+        # Расчёт дистанции от центра станции до корабля
+        station_radius = station.original_sprite.get_width() / 2
+        player_radius = self.original_image.get_width() / 2
+        self.dock_offset = station_radius + player_radius + 10
+
+        # Запоминаем стартовую позицию и угол для интерполяции
+        self.docking_progress = 0.0
+        self.docking_start_pos = pygame.math.Vector2(self.x, self.y)
+        self.docking_start_angle = self.angle
+
+    def stop_docking(self):
+        """Отстыковка от станции."""
+        self.is_docked = False
+        self.is_docking = False
+        self.docked_station = None
+        self.angular_velocity = 0.0
+        # Небольшой толчок от станции
+        self.velocity = pygame.math.Vector2(0, -1.5)
+        self._update_rect()
+
+    def _get_dock_position(self):
+        """Вычисляет целевую позицию и угол корабля на станции (справа)."""
+        station = self.docked_station
+        rad = math.radians(station.angle)
+        target_x = station.x + self.dock_offset * math.cos(rad)
+        target_y = station.y + self.dock_offset * math.sin(rad)
+        target_angle = station.angle + 90
+        if target_angle >= 360:
+            target_angle -= 360
+        elif target_angle < 0:
+            target_angle += 360
+        return target_x, target_y, target_angle
+
+    def _update_docking(self):
+        """Плавная анимация прилёта корабля к точке стыковки."""
+        station = self.docked_station
+        if station is None:
+            return
+
+        # Целевая позиция меняется каждый кадр — станция вращается
+        target_x, target_y, target_angle = self._get_dock_position()
+
+        self.docking_progress += self.docking_speed
+        if self.docking_progress >= 1.0:
+            self.docking_progress = 1.0
+            self.is_docking = False
+            self.is_docked = True
+
+        t = self.docking_progress
+
+        # Интерполяция позиции: от стартовой к целевой
+        self.x = self.docking_start_pos.x + (target_x - self.docking_start_pos.x) * t
+        self.y = self.docking_start_pos.y + (target_y - self.docking_start_pos.y) * t
+
+        # Интерполяция угла (с учётом перехода через 360)
+        angle_diff = target_angle - self.docking_start_angle
+        while angle_diff > 180:
+            angle_diff -= 360
+        while angle_diff < -180:
+            angle_diff += 360
+        self.angle = self.docking_start_angle + angle_diff * t
+        if self.angle >= 360:
+            self.angle -= 360
+        elif self.angle < 0:
+            self.angle += 360
+
+        self._update_rect()
+
+    def _sync_docked_position(self):
+        """Синхронизация с вращающейся станцией — вызывается каждый кадр."""
+        target_x, target_y, target_angle = self._get_dock_position()
+        self.x = target_x
+        self.y = target_y
+        self.angle = target_angle
+        self._update_rect()
+
+    # ================================================================
+
     def stop_collection(self):
-        """Принудительно останавливает сбор (например, при уходе с планеты)"""
         if self.collecting_asteroid is not None:
-            # Сбрасываем флаги у астероида
             self.collecting_asteroid.is_collecting = False
             self.collecting_asteroid.collection_start_time = 0.0
             self.collecting_asteroid = None
@@ -147,7 +239,7 @@ class PlayerShip:
             angle=self.angle,
             speed=12,
             max_distance=300,
-            base_velocity=self.velocity  # <-- важно: передаём скорость корабля
+            base_velocity=self.velocity
         )
         new_bullet.set_sprite(bullet_sprite)
 
@@ -156,12 +248,10 @@ class PlayerShip:
         return new_bullet
 
     def take_damage(self, amount):
-        """Получение урона."""
         self.hp -= amount
         if self.hp < 0:
             self.hp = 0
         print(f"[DAMAGE] HP: {self.hp}/{self.max_hp}")
-
 
     def apply_impulse_to(self, obj, force):
         dx = obj.x - self.x
@@ -173,38 +263,24 @@ class PlayerShip:
 
         dx /= length
         dy /= length
-
-        # Используем встроенный метод астероида
         obj.apply_knockback(dx * force, dy * force)
 
     def try_start_collection(self, asteroid):
-        """
-        Пытается начать сбор с астероида.
-        Возвращает True, если сбор начался, иначе False.
-        """
-        # Не начинаем сбор, если уже что-то добываем или находимся на планете/в посадке
-        if self.is_collecting or self.on_planet_surface or self.is_landing:
+        if self.is_collecting or self.on_planet_surface or self.is_landing or self.is_docking or self.is_docked:
             return False
 
-        # ПРОВЕРКА ТИПА: только mod04
-        # Дополнительно проверяем размер 16px для надежности
         if not asteroid.type_key.startswith("ast_mod04") or asteroid.size_px != 16:
             return False
 
-        # ПРОВЕРКА ДИСТАНЦИИ: строго ≤ 150 пикселей (как ты просил)
         dist_sq = (asteroid.x - self.x) ** 2 + (asteroid.y - self.y) ** 2
         max_dist = 150
         if dist_sq > max_dist ** 2:
             return False
 
-        # Проверка скорости: оставляем, но делаем мягче.
-        # Если астероид летит быстро, лазер не сработает.
-        # Для баланса оставим 0.8 вместо 0.5.
         speed = math.hypot(asteroid.velocity_x, asteroid.velocity_y)
         if speed > 0.8:
             return False
 
-        # Всё ок — начинаем сбор
         self.collecting_asteroid = asteroid
         self.is_collecting = True
         self.collection_start_time = pygame.time.get_ticks()
@@ -216,9 +292,20 @@ class PlayerShip:
     def update(self, world_objects=None):
         """
         Основной цикл обновления физики.
-        world_objects: список объектов (астероидов) для проверки коллизий.
         Возвращает объект столкновения, если оно произошло, иначе None.
         """
+        # --- СТЫКОВКА: анимация прилёта ---
+        if self.is_docking:
+            self._update_docking()
+            self._update_animation_and_bullets()
+            return None
+
+        # --- СТЫКОВКА: уже пристыкован, вращаемся со станцией ---
+        if self.is_docked and self.docked_station:
+            self._sync_docked_position()
+            self._update_animation_and_bullets()
+            return None
+
         # Сохраняем скорость ДО изменений для передачи в main.py (физика удара)
         self.last_vx = float(self.velocity.x)
         self.last_vy = float(self.velocity.y)
@@ -240,7 +327,6 @@ class PlayerShip:
                 self.on_planet_surface = True
                 self.target_scale = self.min_scale
                 self.landing_target = None
-                # Сброс сбора при касании поверхности
                 self.stop_collection()
             else:
                 direction.scale_to_length(self.landing_move_speed)
@@ -254,7 +340,7 @@ class PlayerShip:
 
             self._update_rect()
             self._update_animation_and_bullets()
-            return None  # Во время посадки коллизии с астероидами не проверяем
+            return None
 
         # --- ЛОГИКА НА ПЛАНЕТЕ ---
         if self.on_planet_surface:
@@ -268,26 +354,19 @@ class PlayerShip:
             self._update_animation_and_bullets()
             return None
 
-        # --- ОБРАБОТКА СБОРА РЕСУРСОВ (между состояниями) ---
+        # --- ОБРАБОТКА СБОРА РЕСУРСОВ ---
         if self.is_collecting and self.collecting_asteroid is not None:
             asteroid = self.collecting_asteroid
             current_time = pygame.time.get_ticks()
-            elapsed = current_time - self.collection_start_time
 
-            # Если астероид помечен на удаление — начисляем ресурсы и сбрасываем сбор
             if asteroid.marked_for_removal:
-                # Начисляем ресурсы
                 self.inventory["metal"] += random.randint(5, 16)
                 self.inventory["mineral"] += random.randint(0, 3)
-                # Можно добавить другие типы ресурсов по желанию
-
-                # Сбрасываем состояние сбора
                 self.stop_collection()
                 return None
 
-            # Проверка: если игрок слишком далеко ушёл — прерываем сбор
             dist_sq = (asteroid.x - self.x) ** 2 + (asteroid.y - self.y) ** 2
-            max_dist = 160  # чуть больше, чем при старте
+            max_dist = 160
             if dist_sq > max_dist ** 2:
                 self.stop_collection()
 
@@ -332,26 +411,14 @@ class PlayerShip:
                     break
 
         if collision_detected and hit_object:
-            # СТОЛКНОВЕНИЕ:
-
-            # 1. Сбрасываем скорость корабля
             self.velocity = pygame.math.Vector2(0, 0)
-
-            # 2. СРАЗУ выключаем тягу при ударе — иначе анимация может «подмигивать»
             self.is_thrusting = False
-
-            # 3. Применяем импульс к астероиду
             self.apply_impulse_to(hit_object, 12.0)
-
-            # Если в момент удара мы добывали ресурс — прерываем сбор
             self.stop_collection()
-
             self._update_rect()
             self._update_animation_and_bullets()
             return hit_object
-
         else:
-            # НЕТ СТОЛКНОВЕНИЯ: применяем движение
             self.x = next_x
             self.y = next_y
             self._update_rect()
@@ -359,18 +426,12 @@ class PlayerShip:
             return None
 
     def _update_animation_and_bullets(self):
-        """Вынесенная логика анимации и пуль, чтобы не дублировать код"""
-        # Считаем текущую скорость
         speed = self.velocity.length()
-
-        # Порог, ниже которого считаем корабль «остановившимся»
         STOP_THRESHOLD = 0.15
 
-        # Если скорость очень маленькая — принудительно выключаем тягу и сбрасываем анимацию
         if speed < STOP_THRESHOLD:
             self.is_thrusting = False
 
-        # Анимация двигателей: только если есть тяга И скорость достаточная
         if self.is_thrusting and speed >= STOP_THRESHOLD and self.movement_sprites:
             self.animation_timer += 1
             if self.animation_timer >= 4:
@@ -378,13 +439,11 @@ class PlayerShip:
                 self.animation_timer = 0
             self.original_image = self.movement_sprites[self.animation_index]
         else:
-            # Выключаем анимацию, возвращаем idle
-            self.is_thrusting = False  # чтобы не включалась снова без нажатия
+            self.is_thrusting = False
             self.original_image = self.idle_sprite
             self.animation_index = 0
             self.animation_timer = 0
 
-        # Обновление пуль
         for bullet in self.bullets[:]:
             bullet.update()
             if not bullet.is_active():
@@ -415,22 +474,17 @@ class PlayerShip:
             rotated = pygame.transform.rotate(scaled_img, -self.angle)
             rect = rotated.get_rect(center=(draw_x, draw_y))
             surface.blit(rotated, rect)
-            # При посадке линию не рисуем
             return
 
-        # Обычный режим: вращение и отрисовка
+        # Обычный режим (включая стыковку): вращение и отрисовка
         rotated = pygame.transform.rotate(self.original_image, -self.angle)
         rect = rotated.get_rect(center=(draw_x, draw_y))
         surface.blit(rotated, rect)
 
-        # --- ОТРИСОВКА ЛИНИИ ВЗАИМОДЕЙСТВИЯ И ПОДСВЕТКИ ---
-        if interaction_target is not None:
+        # Линия взаимодействия — только в космосе и не при стыковке
+        if interaction_target is not None and not self.is_docking and not self.is_docked:
             tx = interaction_target.x - cam_x
             ty = interaction_target.y - cam_y
 
-            # 2. Рисуем линию лазера (белую)
-            line_color = (255, 255, 255)
-            pygame.draw.line(surface, line_color, (draw_x, draw_y), (tx, ty), 3)
-
-            # 3. Рисуем кружок на цели (для красоты, можно оставить или убрать)
+            pygame.draw.line(surface, (255, 255, 255), (draw_x, draw_y), (tx, ty), 3)
             pygame.draw.circle(surface, (255, 255, 255), (int(tx), int(ty)), 6, 2)

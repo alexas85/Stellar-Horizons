@@ -4,6 +4,7 @@ import math
 from game_objects.asteroid import Asteroid
 from game_objects.static_ship import StaticShip
 from game_objects.static_planet import StaticPlanet
+from game_objects.station import Station
 from config import ROOM_WIDTH, ROOM_HEIGHT
 
 
@@ -28,7 +29,7 @@ class Sector:
         """
         return (size_px ** 2) / 199.0
 
-    def generate_clustered_field(self, asteroid_sprites, total_count=50, wreck_sprite=None, planet_sprite=None):
+    def generate_clustered_field(self, asteroid_sprites, total_count=50, wreck_sprite=None, planet_sprite=None, station_sprite=None):
         self.asteroids = []
         self.objects = []
 
@@ -208,8 +209,17 @@ class Sector:
             self.objects.append(destroyer)
             print(f"[DEBUG] Истребитель добавлен в комнату ({self.x}, {self.y})")
 
+        # --- СТАНЦИЯ В КОМНАТЕ (-1, 1) ---
+        if station_sprite and self.x == -1 and self.y == 1:
+            station_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2)
+            station_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2)
+            station = Station(sprite=station_sprite, x=station_x, y=station_y)
+            self.objects.append(station)
+            print(f"[DEBUG] Станция добавлена в комнату ({self.x}, {self.y})")
+
     def generate_belt(self, asteroid_sprites, inner_radius, outer_radius, counts, wreck_sprite=None,
-                      planet_sprite=None):
+                      planet_sprite=None, station_sprite=None):
+
         """Генерация пояса астероидов (для стартовой комнаты)."""
         center_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
         center_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
@@ -288,5 +298,13 @@ class Sector:
             )
             self.objects.append(new_planet)
             print(f"[DEBUG] Планета добавлена в generate_belt для комнаты ({self.x}, {self.y})")
+        # --- СТАНЦИЯ В КОМНАТЕ (-1, 1) ---
+        if station_sprite and self.x == -1 and self.y == 1:
+            station_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2)
+            station_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2)
+            station = Station(sprite=station_sprite, x=station_x, y=station_y)
+            self.objects.append(station)
+            print(f"[DEBUG] Станция добавлена в комнату ({self.x}, {self.y})")
 
         self.is_generated = True
+
