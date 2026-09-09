@@ -33,7 +33,7 @@ class PlayerShip:
         self.is_docked = False           # уже пристыкован, вращается со станцией
         self.docked_station = None       # ссылка на объект Station
         self.docking_progress = 0.0      # прогресс анимации стыковки (0..1)
-        self.docking_speed = 0.015       # скорость анимации стыковки
+        self.docking_speed = 0.007      # скорость анимации стыковки
         self.dock_offset = 0             # расстояние от центра станции до корабля
         self.docking_start_pos = None    # позиция корабля в момент начала стыковки
         self.docking_start_angle = 0.0   # угол корабля в момент начала стыковки

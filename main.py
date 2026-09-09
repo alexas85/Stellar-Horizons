@@ -18,6 +18,7 @@ from game_objects.rocket import Rocket
 from game_objects.enemy import DestroyerShip, ScoutShip
 from sprites import get_rocket_sprites
 from game_objects.explosion import Explosion
+from sprites import get_sparks_sprites
 
 
 from game_objects.enemy import DestroyerShip
@@ -90,6 +91,8 @@ def main():
         DestroyerShip.set_bullet_sprite(bullet_sprite)
         rocket_sprites = get_rocket_sprites()
         explosion_sprites = get_explosion_sprites()
+        sparks_sprites = get_sparks_sprites()
+
         explosions = []
 
         print(f"[SUCCESS] Спрайт выстрела загружен: {bullet_path}")
@@ -185,7 +188,7 @@ def main():
                 player.start_landing(near_planet)
                 interaction_target = near_planet
             else:
-# 2. Станция (стыковка)
+                # 2. Станция (стыковка)
                 near_station = None
                 if sector and sector.objects:
                     for obj in sector.objects:
@@ -348,6 +351,8 @@ def main():
                         ast.take_damage(bullet.damage)
                         if bullet in player.bullets:
                             player.bullets.remove(bullet)
+                            # Искры при попадании
+                            explosions.append(Explosion(bullet.x, bullet.y, sparks_sprites))
 
                         if ast.hp <= 0:
                             ast.marked_for_removal = True
@@ -364,8 +369,11 @@ def main():
         for rocket in rockets[:]:
             rocket.update()
             if rocket.check_hit():
-                # Взрыв на месте ракеты
-                explosions.append(Explosion(rocket.x, rocket.y, explosion_sprites))
+                # Взрыв на 5px впереди по направлению ракеты
+                rad = math.radians(rocket.angle)
+                ex = rocket.x + math.cos(rad) * 15
+                ey = rocket.y + math.sin(rad) * 15
+                explosions.append(Explosion(ex, ey, explosion_sprites))
                 rocket.target.take_damage(100)
                 rockets.remove(rocket)
             elif not rocket.is_active():

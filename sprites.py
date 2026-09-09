@@ -142,4 +142,11 @@ def get_asteroid_sprites():
         "ast_mod04_s32": (load_image("asteroids/medium/asteroid_mod04_32px.png"), 32),
         "ast_mod04_s64": (load_image("asteroids/large/asteroid_mod04_64px.png"), 64),
     }
+def get_sparks_sprites():
+    """Загружает 3 кадра анимации искр."""
+    sprites = []
+    for i in range(1, 4):
+        path = f"projectiles/sparks_anim{i:02d}_16px.png"
+        sprites.append(load_image(path))
+    return sprites
 
