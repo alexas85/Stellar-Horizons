@@ -28,7 +28,7 @@ class ScanDrone:
         self.scan_timer = 0
         self.scan_frame_delay = 4
         self.scan_duration = 0
-        self.max_scan_duration = 180  # 3 секунды при 60 fps
+        self.max_scan_duration = 1800  # 3 секунды при 60 fps
 
         # Затухание
         self.done = False
@@ -98,7 +98,7 @@ class ScanDrone:
         # Анимация сканирования — перед дроном, между дроном и обломком
         if self.state == "scanning" and self.scan_sprites:
             scan_sprite = self.scan_sprites[self.scan_frame]
-            offset_dist = 25  # пикселей от дрона к обломку
+            offset_dist = 45  # пикселей от дрона к обломку
             scan_x = self.x + math.cos(math.radians(angle_to_wreck)) * offset_dist
             scan_y = self.y + math.sin(math.radians(angle_to_wreck)) * offset_dist
             rotated_scan = pygame.transform.rotate(scan_sprite, -angle_to_wreck)
