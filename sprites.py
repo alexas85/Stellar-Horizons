@@ -145,7 +145,7 @@ def get_asteroid_sprites():
 def get_sparks_sprites():
     """Загружает 3 кадра анимации искр."""
     sprites = []
-    for i in range(1, 4):
+    for i in range(1, 5):
         path = f"projectiles/sparks_anim{i:02d}_16px.png"
         sprites.append(load_image(path))
     return sprites
