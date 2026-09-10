@@ -150,3 +150,6 @@ def get_sparks_sprites():
         sprites.append(load_image(path))
     return sprites
 
+def get_player_destroyed_sprite():
+    """Загружает спрайт уничтоженного корабля игрока."""
+    return load_image("ships/class_4/destroyed.png")

@@ -8,7 +8,7 @@ import random
 from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
 from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
 from game_objects.static_ship import StaticShip
-from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites, get_rocket_sprites, get_explosion_sprites
+from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites, get_rocket_sprites, get_explosion_sprites, get_sparks_sprites, get_player_destroyed_sprite
 from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
@@ -94,6 +94,8 @@ def main():
         sparks_sprites = get_sparks_sprites()
 
         explosions = []
+        player_destroyed_sprite = get_player_destroyed_sprite()
+
 
         print(f"[SUCCESS] Спрайт выстрела загружен: {bullet_path}")
     except FileNotFoundError:
@@ -125,6 +127,8 @@ def main():
         idle_sprite=idle_sprite,
         movement_sprites=movement_sprites
     )
+    player.set_destroyed_sprite(player_destroyed_sprite)
+
 
     generator = WorldGenerator()
     camera = pygame.Rect(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT)
@@ -163,7 +167,7 @@ def main():
         # --- ЛОГИКА КНОПКИ ДЕЙСТВИЯ (E) ---
         interaction_target = None
 
-        if (not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and
+        if (not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and
                 keys[pygame.K_e]):
 
             room_x = int(player.x // ROOM_WIDTH)
@@ -236,7 +240,7 @@ def main():
             print("[ACTION] Выход в космос")
 
         # Вращение и ускорение — ТОЛЬКО в космосе
-        if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked:
+        if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed:
 
             if keys[pygame.K_a]:
                 player.rotate(-1)
@@ -246,7 +250,7 @@ def main():
                 player.accelerate()
 
         # СТРЕЛЬБА (Пробел)
-        if keys[pygame.K_SPACE] and not player.is_docking and not player.is_docked:
+        if keys[pygame.K_SPACE] and not player.is_docking and not player.is_docked and not player.is_destroyed:
             player.shoot(bullet_sprite)
 
         # --- ЛОГИКА ИГРЫ (физика, коллизии, генерация) ---
@@ -281,7 +285,7 @@ def main():
 
         # --- ЗАХВАТ ЦЕЛИ ДЛЯ РАКЕТЫ ---
         locked_target = None
-        if current_sector and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked:
+        if current_sector and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed:
             for obj in current_sector.objects:
                 if isinstance(obj, (ScoutShip, DestroyerShip)) and not obj.is_destroyed:
                     dx = obj.x - player.x
@@ -301,7 +305,7 @@ def main():
         # --- ЗАПУСК РАКЕТЫ ---
         if fire_rocket:
             fire_rocket = False
-            if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked:
+            if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed:
                 rocket = Rocket(
                     x=player.x,
                     y=player.y,
@@ -335,7 +339,7 @@ def main():
                 player.velocity.x -= push_x * (hit_asteroid.mass / player_mass) * recoil_factor
                 player.velocity.y -= push_y * (hit_asteroid.mass / player_mass) * recoil_factor
             else:
-                player.inventory["metal"] += 1
+                player.add_resource("metal", 1)
                 if current_sector and hit_asteroid in current_sector.asteroids:
                     current_sector.asteroids.remove(hit_asteroid)
         # --- ПОПАДАНИЕ ПУЛЬ ПО АСТЕРОИДАМ ---
@@ -371,8 +375,8 @@ def main():
             if rocket.check_hit():
                 # Взрыв на 5px впереди по направлению ракеты
                 rad = math.radians(rocket.angle)
-                ex = rocket.x + math.cos(rad) * 15
-                ey = rocket.y + math.sin(rad) * 15
+                ex = rocket.x + math.cos(rad) * 20
+                ey = rocket.y + math.sin(rad) * 20
                 explosions.append(Explosion(ex, ey, explosion_sprites))
                 rocket.target.take_damage(100)
                 rockets.remove(rocket)

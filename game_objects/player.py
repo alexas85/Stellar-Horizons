@@ -74,6 +74,12 @@ class PlayerShip:
         # Здоровье
         self.hp = 100
         self.max_hp = 100
+        # --- ЛИМИТ РЕСУРСОВ ---
+        self.max_resource = 50
+        # --- СОСТОЯНИЕ УНИЧТОЖЕНИЯ ---
+        self.is_destroyed = False
+        self.destroyed_sprite = None
+
 
         # --- МЕХАНИКА СБОРА ---
         self.collecting_asteroid = None
@@ -246,12 +252,35 @@ class PlayerShip:
         self.bullets.append(new_bullet)
         self.fire_cooldown = current_time + self.cooldown_time
         return new_bullet
+    def add_resource(self, name, amount):
+        """Добавляет ресурс с учётом лимита. Возвращает фактически добавленное количество."""
+        if name not in self.inventory:
+            self.inventory[name] = 0
+        space_left = self.max_resource - self.inventory[name]
+        if space_left <= 0:
+            return 0
+        actual = min(amount, space_left)
+        self.inventory[name] += actual
+        return actual
+
 
     def take_damage(self, amount):
+        if self.is_destroyed:
+            return
         self.hp -= amount
-        if self.hp < 0:
+        if self.hp <= 0:
             self.hp = 0
+            self.is_destroyed = True
+            self.velocity = pygame.math.Vector2(0, 0)
+            self.angular_velocity = 0.0
+            self.is_thrusting = False
+            self.stop_collection()
+            print("[DESTROYED] Корабль игрока уничтожен!")
         print(f"[DAMAGE] HP: {self.hp}/{self.max_hp}")
+
+    def set_destroyed_sprite(self, sprite):
+        self.destroyed_sprite = sprite
+
 
     def apply_impulse_to(self, obj, force):
         dx = obj.x - self.x
@@ -292,8 +321,23 @@ class PlayerShip:
     def update(self, world_objects=None):
         """
         Основной цикл обновления физики.
-        Возвращает объект столкновения, если оно произошло, иначе None.
-        """
+        Возвращает объект столкновения, если оно произошло, иначе None."""
+
+                # --- УНИЧТОЖЕН: корабль не управляется, только дрейфует ---
+        if self.is_destroyed:
+            # Лёгкий дрейф обломка
+            self.velocity *= 0.98
+            self.x += self.velocity.x
+            self.y += self.velocity.y
+            self.angular_velocity *= 0.95
+            self.angle += self.angular_velocity
+            if self.angle > 360:
+                self.angle -= 360
+            elif self.angle < 0:
+                self.angle += 360
+            self._update_rect()
+            self._update_animation_and_bullets()
+            return None
         # --- СТЫКОВКА: анимация прилёта ---
         if self.is_docking:
             self._update_docking()
@@ -360,8 +404,8 @@ class PlayerShip:
             current_time = pygame.time.get_ticks()
 
             if asteroid.marked_for_removal:
-                self.inventory["metal"] += random.randint(5, 16)
-                self.inventory["mineral"] += random.randint(0, 3)
+                self.add_resource("metal", random.randint(5, 16))
+                self.add_resource("mineral", random.randint(0, 3))
                 self.stop_collection()
                 return None
 
@@ -476,8 +520,9 @@ class PlayerShip:
             surface.blit(rotated, rect)
             return
 
-        # Обычный режим (включая стыковку): вращение и отрисовка
-        rotated = pygame.transform.rotate(self.original_image, -self.angle)
+        # Выбор спрайта: обломок если уничтожен, иначе обычный
+        current_sprite = self.destroyed_sprite if (self.is_destroyed and self.destroyed_sprite) else self.original_image
+        rotated = pygame.transform.rotate(current_sprite, -self.angle)
         rect = rotated.get_rect(center=(draw_x, draw_y))
         surface.blit(rotated, rect)
 
