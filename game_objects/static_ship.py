@@ -14,6 +14,15 @@ class StaticShip:
         self.highlight_alpha = 70
         self.highlight_color = (211, 211, 211)  # Жёлтый для корабля
 
+        # --- СОСТОЯНИЕ СКАНИРОВАНИЯ / РАЗБОРКИ ---
+        self.is_scanned = False
+        self.is_disassembled = False
+        self.resources = {
+            "metal": 15,
+            "mineral": 5,
+            "energy": 3
+        }
+
     def update(self):
         pass
 

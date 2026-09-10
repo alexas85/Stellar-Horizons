@@ -153,3 +153,16 @@ def get_sparks_sprites():
 def get_player_destroyed_sprite():
     """Загружает спрайт уничтоженного корабля игрока."""
     return load_image("ships/class_4/destroyed.png")
+
+def get_drone_sprite():
+    """Загружает спрайт скан-дрона."""
+    return load_image("ships/class_5/repair_scann_drone_mod01_16px.png")
+
+
+def get_scan_sprites():
+    """Загружает 5 кадров анимации сканирования."""
+    sprites = []
+    for i in range(1, 6):
+        path = f"projectiles/scan_anim{i:02d}_32px.png"
+        sprites.append(load_image(path))
+    return sprites

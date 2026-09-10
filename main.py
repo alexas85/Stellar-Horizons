@@ -8,7 +8,7 @@ import random
 from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
 from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
 from game_objects.static_ship import StaticShip
-from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites, get_rocket_sprites, get_explosion_sprites, get_sparks_sprites, get_player_destroyed_sprite
+from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites, get_rocket_sprites, get_explosion_sprites, get_sparks_sprites, get_player_destroyed_sprite, get_drone_sprite, get_scan_sprites
 from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
@@ -19,6 +19,8 @@ from game_objects.enemy import DestroyerShip, ScoutShip
 from sprites import get_rocket_sprites
 from game_objects.explosion import Explosion
 from sprites import get_sparks_sprites
+from game_objects.drone import ScanDrone
+
 
 
 from game_objects.enemy import DestroyerShip
@@ -95,6 +97,9 @@ def main():
 
         explosions = []
         player_destroyed_sprite = get_player_destroyed_sprite()
+        drone_sprite = get_drone_sprite()
+        scan_sprites = get_scan_sprites()
+
 
 
         print(f"[SUCCESS] Спрайт выстрела загружен: {bullet_path}")
@@ -120,6 +125,8 @@ def main():
 
     font_hud = pygame.font.SysFont('Arial', 15, bold=False)
     font_debug = pygame.font.SysFont('Arial', 16)
+    font_ui = pygame.font.SysFont('Arial', 18, bold=True)
+
 
     player = PlayerShip(
         x=ROOM_WIDTH // 2,
@@ -147,6 +154,18 @@ def main():
     INTERACTION_MAX_DIST_SQ = INTERACTION_MAX_DIST ** 2
     # Переменную нужно создать ДО цикла (где-нибудь рядом с running = True)
     show_scout_indicator = False
+    # --- UI ОБЛОМКА ---
+    ui_active = False
+    ui_target_wreck = None
+    ui_target_sector = None
+    drones = []
+
+    btn_w, btn_h = 240, 36
+    cx_ui = CAMERA_WIDTH // 2
+    cy_ui = CAMERA_HEIGHT // 2
+    scan_button_rect = pygame.Rect(cx_ui - btn_w // 2, cy_ui - btn_h - 5, btn_w, btn_h)
+    disassemble_button_rect = pygame.Rect(cx_ui - btn_w // 2, cy_ui + 5, btn_w, btn_h)
+
 
     while running:
 
@@ -159,6 +178,22 @@ def main():
                     show_scout_indicator = not show_scout_indicator
                     print(f"[DEBUG] Индикатор разведчика: {'ВКЛ' if show_scout_indicator else 'ВЫКЛ'}")
             if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1 and ui_active and ui_target_wreck:  # ЛКМ — меню обломка
+                    if scan_button_rect.collidepoint(event.pos):
+                        drone = ScanDrone(player.x, player.y, ui_target_wreck,
+                                          drone_sprite, scan_sprites)
+                        drones.append(drone)
+                        ui_active = False
+                        print("[ACTION] Дрон-сканер запущен")
+                    elif disassemble_button_rect.collidepoint(event.pos):
+                        wreck = ui_target_wreck
+                        for res_name, res_amount in wreck.resources.items():
+                            player.add_resource(res_name, res_amount)
+                        wreck.is_disassembled = True
+                        if ui_target_sector and wreck in ui_target_sector.objects:
+                            ui_target_sector.objects.remove(wreck)
+                        ui_active = False
+                        print("[ACTION] Обломок разобран на ресурсы")
                 if event.button == 3:  # ПКМ
                     fire_rocket = True
 
@@ -167,7 +202,7 @@ def main():
         # --- ЛОГИКА КНОПКИ ДЕЙСТВИЯ (E) ---
         interaction_target = None
 
-        if (not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and
+        if (not ui_active and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and
                 keys[pygame.K_e]):
 
             room_x = int(player.x // ROOM_WIDTH)
@@ -208,29 +243,54 @@ def main():
                     interaction_target = near_station
                     print("[ACTION] Стыковка со станцией")
                 else:
-                    # 3. Добыча астероида
-                    closest_asteroid = None
-                    closest_dist_sq = float('inf')
+                    # 3. Обломок корабля (меню сканирования/разборки)
+                    near_wreck = None
+                    if sector and sector.objects:
+                        for obj in sector.objects:
+                            if isinstance(obj, StaticShip) and not obj.is_disassembled:
+                                dist_sq = (obj.x - player.x) ** 2 + (obj.y - player.y) ** 2
+                                radius_sq = obj.highlight_radius ** 2
+                                if dist_sq <= radius_sq:
+                                    near_wreck = obj
+                                    break
 
-                    if sector and sector.asteroids:
-                        for ast in sector.asteroids:
-                            dx = ast.x - player.x
-                            dy = ast.y - player.y
-                            d_sq = dx * dx + dy * dy
+                    if near_wreck:
+                        ui_active = True
+                        ui_target_wreck = near_wreck
+                        ui_target_sector = sector
+                        interaction_target = near_wreck
+                        print("[ACTION] Меню обломка корабля открыто")
+                    else:
+                        # 4. Добыча астероида
+                        closest_asteroid = None
+                        closest_dist_sq = float('inf')
 
-                            if d_sq <= (150 ** 2):
-                                if ast.type_key.startswith("ast_mod04") and ast.size_px == 16:
-                                    if d_sq < closest_dist_sq:
-                                        closest_dist_sq = d_sq
-                                        closest_asteroid = ast
+                        if sector and sector.asteroids:
+                            for ast in sector.asteroids:
+                                dx = ast.x - player.x
+                                dy = ast.y - player.y
+                                d_sq = dx * dx + dy * dy
 
-                    if closest_asteroid:
-                        started = player.try_start_collection(closest_asteroid)
-                        if started:
-                            print(f"[ACTION] Добыча начата с {closest_asteroid.type_key}")
-                        interaction_target = closest_asteroid
+                                if d_sq <= (150 ** 2):
+                                    if ast.type_key.startswith("ast_mod04") and ast.size_px == 16:
+                                        if d_sq < closest_dist_sq:
+                                            closest_dist_sq = d_sq
+                                            closest_asteroid = ast
+
+                        if closest_asteroid:
+                            started = player.try_start_collection(closest_asteroid)
+                            if started:
+                                print(f"[ACTION] Добыча начата с {closest_asteroid.type_key}")
+                            interaction_target = closest_asteroid
 
         # --- КНОПКА ОТКАТА (Q) ---
+        # --- ЗАКРЫТИЕ МЕНЮ ОБЛОМКА (Q) ---
+        if keys[pygame.K_q] and ui_active:
+            ui_active = False
+            ui_target_wreck = None
+            ui_target_sector = None
+            print("[ACTION] Меню обломка закрыто")
+
         if keys[pygame.K_q] and (player.is_docking or player.is_docked):
             player.stop_docking()
             print("[ACTION] Отстыковка от станции")
@@ -240,7 +300,7 @@ def main():
             print("[ACTION] Выход в космос")
 
         # Вращение и ускорение — ТОЛЬКО в космосе
-        if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed:
+        if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:
 
             if keys[pygame.K_a]:
                 player.rotate(-1)
@@ -250,8 +310,8 @@ def main():
                 player.accelerate()
 
         # СТРЕЛЬБА (Пробел)
-        if keys[pygame.K_SPACE] and not player.is_docking and not player.is_docked and not player.is_destroyed:
-            player.shoot(bullet_sprite)
+        if keys[
+            pygame.K_SPACE] and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:            player.shoot(bullet_sprite)
 
         # --- ЛОГИКА ИГРЫ (физика, коллизии, генерация) ---
 
@@ -285,7 +345,8 @@ def main():
 
         # --- ЗАХВАТ ЦЕЛИ ДЛЯ РАКЕТЫ ---
         locked_target = None
-        if current_sector and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed:
+        if current_sector and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:
+
             for obj in current_sector.objects:
                 if isinstance(obj, (ScoutShip, DestroyerShip)) and not obj.is_destroyed:
                     dx = obj.x - player.x
@@ -305,7 +366,7 @@ def main():
         # --- ЗАПУСК РАКЕТЫ ---
         if fire_rocket:
             fire_rocket = False
-            if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed:
+            if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:
                 rocket = Rocket(
                     x=player.x,
                     y=player.y,
@@ -388,6 +449,12 @@ def main():
             exp.update()
             if exp.done:
                 explosions.remove(exp)
+        # --- ОБНОВЛЕНИЕ ДРОНОВ ---
+        for drone in drones[:]:
+            drone.update()
+            if drone.done:
+                drones.remove(drone)
+
 
         # Добавляем фрагменты в сектор (до cleanup, чтобы они сразу отрисовались)
         if new_fragments and current_sector:
@@ -484,6 +551,11 @@ def main():
             for exp in explosions:
                 exp.draw(screen, camera)
 
+            # --- ДРОНЫ ---
+            for drone in drones:
+                drone.draw(screen, camera)
+
+
             # --- ПУЛИ ИСТРЕБИТЕЛЯ ---
             for obj in all_objects:
                 if isinstance(obj, DestroyerShip):
@@ -498,6 +570,31 @@ def main():
                     # Отрисовка пуль
                     for bullet in obj.bullets:
                         bullet.draw(screen, camera)
+            # --- МЕНЮ ОБЛОМКА ---
+            if ui_active and ui_target_wreck:
+                if ui_target_wreck.is_disassembled or (
+                    ui_target_sector and ui_target_wreck not in ui_target_sector.objects
+                ):
+                    ui_active = False
+                    ui_target_wreck = None
+                else:
+                    mouse_pos = pygame.mouse.get_pos()
+
+                    # Кнопка "Сканировать"
+                    scan_hover = scan_button_rect.collidepoint(mouse_pos)
+                    scan_color = (80, 110, 160) if scan_hover else (60, 80, 120)
+                    pygame.draw.rect(screen, scan_color, scan_button_rect, border_radius=4)
+                    pygame.draw.rect(screen, (150, 180, 255), scan_button_rect, 2, border_radius=4)
+                    scan_text = font_ui.render("Сканировать", True, (255, 255, 255))
+                    screen.blit(scan_text, scan_text.get_rect(center=scan_button_rect.center))
+
+                    # Кнопка "Разобрать на ресурсы"
+                    dis_hover = disassemble_button_rect.collidepoint(mouse_pos)
+                    dis_color = (160, 80, 80) if dis_hover else (120, 60, 60)
+                    pygame.draw.rect(screen, dis_color, disassemble_button_rect, border_radius=4)
+                    pygame.draw.rect(screen, (255, 150, 150), disassemble_button_rect, 2, border_radius=4)
+                    dis_text = font_ui.render("Разобрать на ресурсы", True, (255, 255, 255))
+                    screen.blit(dis_text, dis_text.get_rect(center=disassemble_button_rect.center))
 
 
             # ОТРИСОВКА ИГРОКА С ЛИНИЕЙ
