@@ -20,10 +20,8 @@ from sprites import get_rocket_sprites
 from game_objects.explosion import Explosion
 from sprites import get_sparks_sprites
 from game_objects.drone import ScanDrone
+from ui_config import HUD_NEON, HUD_GLOW, HUD_TEXT, HUD_BG_ALPHA, HUD_BORDER_WIDTH, HUD_GAP, HUD_NOISE_INTENSITY, HUD_NOISE_LINE_ALPHA, HUD_GLOW_OVERLAY_ALPHA
 
-
-
-from game_objects.enemy import DestroyerShip
 
 from game_objects.bullet import Bullet
 
@@ -166,6 +164,45 @@ def main():
     scan_button_rect = pygame.Rect(cx_ui - btn_w // 2, cy_ui - btn_h - 5, btn_w, btn_h)
     disassemble_button_rect = pygame.Rect(cx_ui - btn_w // 2, cy_ui + 5, btn_w, btn_h)
 
+    def draw_hologram_button(surface, text, x, y, width, height, time_offset):
+        """
+        Рисует одну кнопку в стиле голограммы.
+        """
+        # Создаём прозрачную поверхность кнопки
+        btn_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+
+        # Полупрозрачный фон
+        bg_color = (*HUD_NEON[:3], HUD_BG_ALPHA)
+        btn_surf.fill(bg_color)
+
+        # Неоновая рамка
+        rect = pygame.Rect(0, 0, width, height)
+        pygame.draw.rect(btn_surf, HUD_NEON, rect, HUD_BORDER_WIDTH)
+
+        # Текст (моноширинный шрифт — стиль «техно»)
+        font = pygame.font.SysFont("consolas", 16, bold=True)  # Чуть меньше шрифт
+        text_surf = font.render(text, True, HUD_TEXT)
+        text_rect = text_surf.get_rect(center=(width // 2, height // 2))
+        btn_surf.blit(text_surf, text_rect)
+
+        # Эффект помех (горизонтальные линии)
+        noise_intensity = HUD_NOISE_INTENSITY
+        for i in range(0, height, 6):
+            shift = math.sin(time_offset * 2 + i * 0.5) * noise_intensity
+            line_y = i + int(shift)
+            if 0 <= line_y < height:
+                line_color = (*HUD_GLOW, HUD_NOISE_LINE_ALPHA)
+                pygame.draw.line(btn_surf, line_color, (0, line_y), (width, line_y))
+
+        # Лёгкое свечение (bloom-эффект)
+        glow_surf = btn_surf.copy()
+        glow_color = (*HUD_GLOW, HUD_GLOW_OVERLAY_ALPHA)
+        overlay = pygame.Surface((width, height), pygame.SRCALPHA)
+        overlay.fill(glow_color)
+        glow_surf.blit(overlay, (0, 0), special_flags=pygame.BLEND_ADD)
+
+        # Рисуем готовую кнопку на основной поверхности
+        surface.blit(glow_surf, (x, y))
 
     while running:
 
@@ -181,7 +218,7 @@ def main():
                 if event.button == 1 and ui_active and ui_target_wreck:  # ЛКМ — меню обломка
                     if scan_button_rect.collidepoint(event.pos):
                         drone = ScanDrone(player.x, player.y, ui_target_wreck,
-                                          drone_sprite, scan_sprites)
+                                          drone_sprite, scan_sprites, return_target=player)
                         drones.append(drone)
                         ui_active = False
                         print("[ACTION] Дрон-сканер запущен")
@@ -434,7 +471,7 @@ def main():
         for rocket in rockets[:]:
             rocket.update()
             if rocket.check_hit():
-                # Взрыв на 5px впереди по направлению ракеты
+                # Взрыв на 20px впереди по направлению ракеты
                 rad = math.radians(rocket.angle)
                 ex = rocket.x + math.cos(rad) * 20
                 ey = rocket.y + math.sin(rad) * 20
@@ -570,32 +607,38 @@ def main():
                     # Отрисовка пуль
                     for bullet in obj.bullets:
                         bullet.draw(screen, camera)
-            # --- МЕНЮ ОБЛОМКА ---
+            # --- МЕНЮ ОБЛОМКА (голографические кнопки) ---
             if ui_active and ui_target_wreck:
                 if ui_target_wreck.is_disassembled or (
-                    ui_target_sector and ui_target_wreck not in ui_target_sector.objects
+                        ui_target_sector and ui_target_wreck not in ui_target_sector.objects
                 ):
                     ui_active = False
                     ui_target_wreck = None
                 else:
-                    mouse_pos = pygame.mouse.get_pos()
+                    # Экранные координаты обломка
+                    wreck_sx = int(ui_target_wreck.x - camera.x)
+                    wreck_sy = int(ui_target_wreck.y - camera.y)
 
-                    # Кнопка "Сканировать"
-                    scan_hover = scan_button_rect.collidepoint(mouse_pos)
-                    scan_color = (80, 110, 160) if scan_hover else (60, 80, 120)
-                    pygame.draw.rect(screen, scan_color, scan_button_rect, border_radius=4)
-                    pygame.draw.rect(screen, (150, 180, 255), scan_button_rect, 2, border_radius=4)
-                    scan_text = font_ui.render("Сканировать", True, (255, 255, 255))
-                    screen.blit(scan_text, scan_text.get_rect(center=scan_button_rect.center))
+                    # Уменьшенные размеры кнопок
+                    h_btn_w, h_btn_h = 180, 30  # Было 220, 36
 
-                    # Кнопка "Разобрать на ресурсы"
-                    dis_hover = disassemble_button_rect.collidepoint(mouse_pos)
-                    dis_color = (160, 80, 80) if dis_hover else (120, 60, 60)
-                    pygame.draw.rect(screen, dis_color, disassemble_button_rect, border_radius=4)
-                    pygame.draw.rect(screen, (255, 150, 150), disassemble_button_rect, 2, border_radius=4)
-                    dis_text = font_ui.render("Разобрать на ресурсы", True, (255, 255, 255))
-                    screen.blit(dis_text, dis_text.get_rect(center=disassemble_button_rect.center))
+                    # Позиция: справа от обломка, отступ 60px от центра
+                    h_base_x = wreck_sx + 60
+                    h_base_y = wreck_sy - h_btn_h - 4  # Верхняя кнопка чуть выше центра
 
+                    # Обновляем rect'ы для кликов
+                    scan_button_rect = pygame.Rect(h_base_x, h_base_y, h_btn_w, h_btn_h)
+                    disassemble_button_rect = pygame.Rect(h_base_x, h_base_y + h_btn_h + HUD_GAP, h_btn_w, h_btn_h)
+
+                    # Время для анимации помех
+                    h_time = pygame.time.get_ticks() / 1000.0
+
+                    # Рисуем голографические кнопки
+                    draw_hologram_button(screen, "СКАНИРОВАНИЕ",
+                                         h_base_x, h_base_y, h_btn_w, h_btn_h, h_time)
+                    draw_hologram_button(screen, "РАЗОБРАТЬ",
+                                         h_base_x, h_base_y + h_btn_h + HUD_GAP,
+                                         h_btn_w, h_btn_h, h_time)
 
             # ОТРИСОВКА ИГРОКА С ЛИНИЕЙ
             # Передаем interaction_target, чтобы draw() мог нарисовать линию

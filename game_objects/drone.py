@@ -4,10 +4,13 @@ import math
 
 class ScanDrone:
     """Дрон-сканер: вылетает к обломку, выходит на орбиту, сканирует, исчезает."""
-    def __init__(self, start_x, start_y, target_ship, drone_sprite, scan_sprites):
+
+    def __init__(self, start_x, start_y, target_ship, drone_sprite, scan_sprites, return_target=None):
+
         self.x = start_x
         self.y = start_y
         self.target_ship = target_ship
+        self.return_target = return_target
         self.drone_sprite = drone_sprite
         self.scan_sprites = scan_sprites
 
@@ -77,7 +80,24 @@ class ScanDrone:
             self.scan_duration += 1
             if self.scan_duration >= self.max_scan_duration:
                 target.is_scanned = True
+                if self.return_target is not None:
+                    self.state = "returning"
+                else:
+                    self.state = "done"
+
+        elif self.state == "returning":
+            dx = self.return_target.x - self.x
+            dy = self.return_target.y - self.y
+            dist = math.hypot(dx, dy)
+
+            if dist < self.fly_speed:
+                self.x = self.return_target.x
+                self.y = self.return_target.y
                 self.state = "done"
+            else:
+                self.x += dx / dist * self.fly_speed
+                self.y += dy / dist * self.fly_speed
+
 
         elif self.state == "done":
             self.fade_timer += 1
@@ -89,23 +109,46 @@ class ScanDrone:
         draw_x = self.x - cam_x
         draw_y = self.y - cam_y
 
-        # Угол от дрона к обломку — дрон "смотрит" на обломок
-        angle_to_wreck = math.degrees(math.atan2(
-            self.target_ship.y - self.y,
-            self.target_ship.x - self.x
-        ))
+        # Угол поворота: при сканировании смотрит на обломок, при возвращении — на игрока
+        if self.state == "returning" and self.return_target is not None:
+            angle_to_wreck = math.degrees(math.atan2(
+                self.return_target.y - self.y,
+                self.return_target.x - self.x
+            ))
+        else:
+            angle_to_wreck = math.degrees(math.atan2(
+                self.target_ship.y - self.y,
+                self.target_ship.x - self.x
+            ))
 
-        # Анимация сканирования — перед дроном, между дроном и обломком
-        if self.state == "scanning" and self.scan_sprites:
-            scan_sprite = self.scan_sprites[self.scan_frame]
-            offset_dist = 45  # пикселей от дрона к обломку
+        # --- НОВЫЙ ЭФФЕКТ СКАНИРОВАНИЯ (градиент + размер) ---
+        if self.state == "scanning":
+            scan_radius = 100  # радиус эффекта (было ~32px, теперь крупнее)
+            scan_thickness = 1
+            scan_alpha_center = 180
+            scan_alpha_edge = 0
+
+            # Создаём поверхность для эффекта
+            surf_size = (scan_radius + scan_thickness) * 2
+            scan_surf = pygame.Surface((surf_size, surf_size), pygame.SRCALPHA)
+
+            # Рисуем круг с градиентом вручную (через концентрические кольца)
+            rings = 12
+            for i in range(rings):
+                r_current = int((i / rings) * scan_radius)
+                r_next = int(((i + 1) / rings) * scan_radius)
+                alpha = int(scan_alpha_center - (i / rings) * (scan_alpha_center - scan_alpha_edge))
+                color = (0, 255, 200, alpha)  # голубой сканирующий цвет
+
+                pygame.draw.circle(scan_surf, color, (surf_size // 2, surf_size // 2), r_next, scan_thickness)
+
+            # Позиционируем эффект между дроном и обломком (чуть ближе к обломку)
+            offset_dist = 40
             scan_x = self.x + math.cos(math.radians(angle_to_wreck)) * offset_dist
             scan_y = self.y + math.sin(math.radians(angle_to_wreck)) * offset_dist
-            rotated_scan = pygame.transform.rotate(scan_sprite, -angle_to_wreck)
-            scan_rect = rotated_scan.get_rect(
-                center=(int(scan_x - cam_x), int(scan_y - cam_y))
-            )
-            surface.blit(rotated_scan, scan_rect)
+
+            rect = scan_surf.get_rect(center=(int(scan_x - cam_x), int(scan_y - cam_y)))
+            surface.blit(scan_surf, rect)
 
         # Дрон (с затуханием в конце)
         alpha = 255
