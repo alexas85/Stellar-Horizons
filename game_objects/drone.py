@@ -1,3 +1,4 @@
+# game_objects/drone.py
 import pygame
 import math
 
@@ -31,7 +32,7 @@ class ScanDrone:
         self.scan_timer = 0
         self.scan_frame_delay = 4
         self.scan_duration = 0
-        self.max_scan_duration = 1800  # 3 секунды при 60 fps
+        self.max_scan_duration = 1000  # 3 секунды при 60 fps
 
         # Затухание
         self.done = False

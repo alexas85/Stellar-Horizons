@@ -13,7 +13,7 @@ from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
 from game_objects.station import Station
-from config import RESOURCE_ICONS
+from config import RESOURCE_ICONS, REPAIR_COST_PER_PERCENT, REPAIR_RESOURCE_TYPE
 from game_objects.rocket import Rocket
 from game_objects.enemy import DestroyerShip, ScoutShip
 from sprites import get_rocket_sprites
@@ -150,12 +150,16 @@ def main():
     # Константа дистанции подсветки (как ты просил)
     INTERACTION_MAX_DIST = 250
     INTERACTION_MAX_DIST_SQ = INTERACTION_MAX_DIST ** 2
+
     # Переменную нужно создать ДО цикла (где-нибудь рядом с running = True)
     show_scout_indicator = False
     # --- UI ОБЛОМКА ---
     ui_active = False
     ui_target_wreck = None
     ui_target_sector = None
+    repair_menu_active = False  # Открыто ли окно расчета стоимости?
+    repair_target_module = None  # Какой модуль чиним ("Корпус", "Броня" и т.д.)
+    repair_needed_amount = 0  # Сколько ресурсов нужно
     drones = []
 
     btn_w, btn_h = 240, 36
@@ -204,6 +208,118 @@ def main():
         # Рисуем готовую кнопку на основной поверхности
         surface.blit(glow_surf, (x, y))
 
+    def draw_hologram_scan_report(surface, ship_name, modules, x, y, time_offset, buttons_rects):
+        """
+        Рисует отчёт сканирования как набор кнопок модулей.
+        buttons_rects: словарь { 'Название': pygame.Rect }, заполняется здесь.
+        Возвращает Y-координату низа последней кнопки.
+        """
+        font_header = pygame.font.SysFont("consolas", 18, bold=True)
+        font_body = pygame.font.SysFont("consolas", 14, bold=True)
+
+        # 1. Заголовок
+        header_surf = font_header.render(ship_name, True, HUD_NEON)
+        surface.blit(header_surf, (x, y))
+
+        # 2. Рисуем кнопки для каждого модуля
+        start_y = y + 26
+        btn_w = 180
+        btn_h = 24
+        gap_y = 6
+
+        current_y = start_y
+
+        # Очищаем словарь кнопок перед перерисовкой
+        buttons_rects.clear()
+
+        for mod_name, integrity in modules.items():
+            # Формируем текст кнопки: "Броня — 32%"
+            text = f"{mod_name} — {integrity}%"
+
+            # Создаем Rect для этой кнопки (для проверки кликов)
+            btn_rect = pygame.Rect(x, current_y, btn_w, btn_h)
+            buttons_rects[mod_name] = btn_rect
+
+            # Рисуем саму кнопку (используем нашу функцию отрисовки)
+            # Передаем текст и координаты
+            draw_hologram_button(surface, text, x, current_y, btn_w, btn_h, time_offset)
+
+            current_y += btn_h + gap_y
+
+        return current_y
+
+    def draw_repair_cost_menu(surface, wreck, module_name, needed_amount, x, y, time_offset):
+        """
+        Рисует окно с расчетом стоимости ремонта.
+        """
+        font_title = pygame.font.SysFont("consolas", 16, bold=True)
+        font_body = pygame.font.SysFont("consolas", 14)
+
+        # Заголовок: "РЕМОНТ: Корпус"
+        title_text = f"РЕМОНТ: {module_name}"
+        title_surf = font_title.render(title_text, True, HUD_NEON)
+
+        # Получаем иконку ресурса (металл)
+        res_icon = resource_surfaces.get(REPAIR_RESOURCE_TYPE)
+
+        # Если иконки нет (ошибка конфига), рисуем серый квадрат
+        if not res_icon:
+            res_icon = pygame.Surface((24, 24))
+            res_icon.fill((150, 150, 150))
+
+        # Текст стоимости
+        cost_text = f"Требуется: {int(needed_amount)} ед."
+        cost_surf = font_body.render(cost_text, True, HUD_TEXT)
+
+        # Размеры окна
+        win_w = 220
+        win_h = 100
+
+        # Рисуем фон окна (рамку)
+        win_surf = pygame.Surface((win_w, win_h), pygame.SRCALPHA)
+        win_surf.fill((*HUD_NEON[:3], HUD_BG_ALPHA))
+        pygame.draw.rect(win_surf, HUD_NEON, (0, 0, win_w, win_h), HUD_BORDER_WIDTH)
+
+        # Эффект помех (шум)
+        for i in range(0, win_h, 6):
+            shift = math.sin(time_offset * 2 + i * 0.5) * HUD_NOISE_INTENSITY
+            line_y = i + int(shift)
+            if 0 <= line_y < win_h:
+                pygame.draw.line(win_surf, (*HUD_GLOW, HUD_NOISE_LINE_ALPHA),
+                                 (0, line_y), (win_w, line_y))
+
+        # Отрисовка элементов внутри окна
+        # Иконка ресурса (слева)
+        icon_pos = (10, 15)
+        win_surf.blit(res_icon, icon_pos)
+
+        # Текст стоимости (справа от иконки)
+        text_pos = (
+            icon_pos[0] + res_icon.get_width() + 10,
+            icon_pos[1] + 2
+        )
+        win_surf.blit(cost_surf, text_pos)
+
+        # Кнопка "РЕМОНТИРОВАТЬ" внизу
+        btn_w, btn_h = 180, 26
+        btn_x = (win_w - btn_w) // 2
+        btn_y = 55
+
+        # Сохраняем rect кнопки для проверки кликов (вернем его из функции)
+        btn_rect = pygame.Rect(x + btn_x, y + btn_y, btn_w, btn_h)
+
+        draw_hologram_button(win_surf, "РЕМОНТИРОВАТЬ", btn_x, btn_y, btn_w, btn_h, time_offset)
+
+        # Свечение окна
+        glow = pygame.Surface((win_w, win_h), pygame.SRCALPHA)
+        glow.fill((*HUD_GLOW, HUD_GLOW_OVERLAY_ALPHA))
+        win_surf.blit(glow, (0, 0), special_flags=pygame.BLEND_ADD)
+
+        # Рисуем само окно на экране
+        surface.blit(win_surf, (x, y))
+
+        return btn_rect
+
     while running:
 
         # 1. Обработка событий
@@ -215,37 +331,105 @@ def main():
                     show_scout_indicator = not show_scout_indicator
                     print(f"[DEBUG] Индикатор разведчика: {'ВКЛ' if show_scout_indicator else 'ВЫКЛ'}")
             if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1 and ui_active and ui_target_wreck:  # ЛКМ — меню обломка
-                    if scan_button_rect.collidepoint(event.pos):
-                        drone = ScanDrone(player.x, player.y, ui_target_wreck,
-                                          drone_sprite, scan_sprites, return_target=player)
-                        drones.append(drone)
-                        ui_active = False
-                        print("[ACTION] Дрон-сканер запущен")
-                    elif disassemble_button_rect.collidepoint(event.pos):
-                        wreck = ui_target_wreck
-                        for res_name, res_amount in wreck.resources.items():
-                            player.add_resource(res_name, res_amount)
-                        wreck.is_disassembled = True
-                        if ui_target_sector and wreck in ui_target_sector.objects:
-                            ui_target_sector.objects.remove(wreck)
-                        ui_active = False
-                        print("[ACTION] Обломок разобран на ресурсы")
-                if event.button == 3:  # ПКМ
+                if event.button == 3:  # Правая кнопка — запуск ракеты
                     fire_rocket = True
+                if event.button == 1:  # Левая кнопка — UI
+                    # --- ЛОГИКА КЛИКОВ ПО UI ---
+
+                    # 1. Если открыто меню ремонта (подменю)
+                    if repair_menu_active and repair_target_module and ui_target_wreck:
+                        wreck_sx = int(ui_target_wreck.x - camera.x)
+                        wreck_sy = int(ui_target_wreck.y - camera.y)
+                        h_base_x = wreck_sx + 60
+                        h_base_y = wreck_sy - 80
+
+                        win_w, win_h = 220, 100
+                        btn_w, btn_h = 180, 26
+                        btn_x = (win_w - btn_w) // 2
+                        btn_y = 55
+
+                        repair_btn_rect = pygame.Rect(h_base_x + btn_x, h_base_y + btn_y, btn_w, btn_h)
+
+                        if repair_btn_rect.collidepoint(event.pos):
+                            print(f"[ACTION] Нажата кнопка 'РЕМОНТИРОВАТЬ' для модуля: {repair_target_module}")
+                            # ЗДЕСЬ БУДЕТ ЛОГИКА ЗАПУСКА ДРОНА (следующий этап)
+                            repair_menu_active = False
+                            repair_target_module = None
+                        else:
+                            # Клик мимо кнопки — закрываем подменю
+                            repair_menu_active = False
+                            repair_target_module = None
+
+                    # 2. Если открыто основное меню корабля (отсканировано)
+                    elif ui_active and ui_target_wreck and ui_target_wreck.is_scanned:
+                        wreck_sx = int(ui_target_wreck.x - camera.x)
+                        wreck_sy = int(ui_target_wreck.y - camera.y)
+                        h_base_x = wreck_sx + 60
+                        h_base_y = wreck_sy - 80
+
+                        btn_w = 180
+                        btn_h = 24
+                        gap_y = 6
+                        current_y = h_base_y + 26
+
+                        clicked_module = None
+
+                        for mod_name in ui_target_wreck.modules.keys():
+                            rect = pygame.Rect(h_base_x, current_y, btn_w, btn_h)
+                            if rect.collidepoint(event.pos):
+                                clicked_module = mod_name
+                                break
+                            current_y += btn_h + gap_y
+
+                        if clicked_module:
+                            # --- ЛОГИКА ОТКРЫТИЯ МЕНЮ РЕМОНТА ---
+                            if clicked_module == "Корпус":
+                                current_integrity = ui_target_wreck.modules["Корпус"]
+                                needed_percent = 100 - current_integrity
+                                needed_amount = needed_percent * REPAIR_COST_PER_PERCENT
+                                repair_menu_active = True
+                                repair_target_module = clicked_module
+                                repair_needed_amount = needed_amount
+                                print(f"[INFO] Требуется {needed_amount} металла для ремонта корпуса до 100%")
+                            else:
+                                print(f"[INFO] Клик по модулю '{clicked_module}'. Пока без действия.")
+
+                        elif disassemble_button_rect.collidepoint(event.pos):
+                            wreck = ui_target_wreck
+                            for res_name, res_amount in wreck.resources.items():
+                                player.add_resource(res_name, res_amount)
+                            wreck.is_disassembled = True
+                            if ui_target_sector and wreck in ui_target_sector.objects:
+                                ui_target_sector.objects.remove(wreck)
+                            ui_active = False
+                            print("[ACTION] Обломок разобран на ресурсы")
+
+                    # 3. Если не отсканировано
+                    elif ui_active and ui_target_wreck and not ui_target_wreck.is_scanned:
+                        if scan_button_rect.collidepoint(event.pos):
+                            drone = ScanDrone(player.x, player.y, ui_target_wreck,
+                                              drone_sprite, scan_sprites, return_target=player)
+                            drones.append(drone)
+                            ui_active = False
+                            print("[ACTION] Дрон-сканер запущен")
+                        elif disassemble_button_rect.collidepoint(event.pos):
+                            # Разборка без сканирования (если нужна)
+                            pass
 
         keys = pygame.key.get_pressed()
 
         # --- ЛОГИКА КНОПКИ ДЕЙСТВИЯ (E) ---
         interaction_target = None
 
-        if (not ui_active and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and
+        if (
+                not ui_active and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and
                 keys[pygame.K_e]):
 
             room_x = int(player.x // ROOM_WIDTH)
             room_y = int(player.y // ROOM_HEIGHT)
             sector = generator.get_sector(room_x, room_y, asteroid_sprites,
-                                          wreck_sprite=wreck_sprite, planet_sprite=planet_sprite, station_sprite=station_sprite)
+                                          wreck_sprite=wreck_sprite, planet_sprite=planet_sprite,
+                                          station_sprite=station_sprite)
 
             near_planet = None
 
@@ -321,11 +505,12 @@ def main():
                             interaction_target = closest_asteroid
 
         # --- КНОПКА ОТКАТА (Q) ---
-        # --- ЗАКРЫТИЕ МЕНЮ ОБЛОМКА (Q) ---
         if keys[pygame.K_q] and ui_active:
             ui_active = False
             ui_target_wreck = None
             ui_target_sector = None
+            repair_menu_active = False
+            repair_target_module = None
             print("[ACTION] Меню обломка закрыто")
 
         if keys[pygame.K_q] and (player.is_docking or player.is_docked):
@@ -348,7 +533,8 @@ def main():
 
         # СТРЕЛЬБА (Пробел)
         if keys[
-            pygame.K_SPACE] and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:            player.shoot(bullet_sprite)
+            pygame.K_SPACE] and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:
+            player.shoot(bullet_sprite)
 
         # --- ЛОГИКА ИГРЫ (физика, коллизии, генерация) ---
 
@@ -416,7 +602,6 @@ def main():
         # ВАЖНО: Вызываем update игрока, передавая список объектов.
         hit_asteroid = player.update(world_objects=check_objects)
 
-
         if hit_asteroid:
             is_mod04 = hit_asteroid.type_key.startswith("ast_mod04")
 
@@ -440,6 +625,7 @@ def main():
                 player.add_resource("metal", 1)
                 if current_sector and hit_asteroid in current_sector.asteroids:
                     current_sector.asteroids.remove(hit_asteroid)
+
         # --- ПОПАДАНИЕ ПУЛЬ ПО АСТЕРОИДАМ ---
         new_fragments = []
         if current_sector and current_sector.asteroids:
@@ -453,25 +639,22 @@ def main():
                         ast.take_damage(bullet.damage)
                         if bullet in player.bullets:
                             player.bullets.remove(bullet)
-                            # Искры при попадании
                             explosions.append(Explosion(bullet.x, bullet.y, sparks_sprites))
 
                         if ast.hp <= 0:
                             ast.marked_for_removal = True
-                            # Если добывали этот астероид — останавливаем сбор
                             if player.collecting_asteroid is ast:
                                 player.stop_collection()
-                            # Спавним фрагменты
                             fragments = ast.spawn_fragments(asteroid_sprites)
                             for frag in fragments:
                                 if frag is not None:
                                     new_fragments.append(frag)
                         break
+
         # --- ОБНОВЛЕНИЕ РАКЕТ ---
         for rocket in rockets[:]:
             rocket.update()
             if rocket.check_hit():
-                # Взрыв на 20px впереди по направлению ракеты
                 rad = math.radians(rocket.angle)
                 ex = rocket.x + math.cos(rad) * 20
                 ey = rocket.y + math.sin(rad) * 20
@@ -486,19 +669,18 @@ def main():
             exp.update()
             if exp.done:
                 explosions.remove(exp)
+
         # --- ОБНОВЛЕНИЕ ДРОНОВ ---
         for drone in drones[:]:
             drone.update()
             if drone.done:
                 drones.remove(drone)
 
-
-        # Добавляем фрагменты в сектор (до cleanup, чтобы они сразу отрисовались)
+        # Добавляем фрагменты в сектор
         if new_fragments and current_sector:
             current_sector.asteroids.extend(new_fragments)
 
-
-        # ОЧИСТКА УДАЛЕННЫХ АСТЕРОИДОВ (должно быть ДО отрисовки!)
+        # ОЧИСТКА УДАЛЕННЫХ АСТЕРОИДОВ
         if current_sector and current_sector.asteroids:
             current_sector.asteroids = [
                 ast for ast in current_sector.asteroids if not ast.marked_for_removal
@@ -516,11 +698,10 @@ def main():
 
         # --- ОТРИСОВКА ---
         if player.on_planet_surface:
-            screen.fill((135, 206, 235))  # Sky Blue
-            # На планете линию не рисуем (или рисуем только если нужно)
+            screen.fill((135, 206, 235))
             player.draw(screen, camera.topleft, interaction_target=None)
         else:
-            screen.fill((0, 0, 20))  # Чёрный космос
+            screen.fill((0, 0, 20))
 
             # Параллакс звёзд
             if backgrounds and "stars" in backgrounds:
@@ -563,7 +744,8 @@ def main():
                         obj.draw(screen, camera, show_highlight=show_highlight)
                     else:
                         obj.draw(screen, camera)
-                        # --- СЕРАЯ ОКРУЖНОСТЬ ВОКРУГ MOD04 АСТЕРОИДОВ В РАДИУСЕ 150px ---
+
+            # --- СЕРАЯ ОКРУЖНОСТЬ ВОКРУГ MOD04 АСТЕРОИДОВ ---
             if current_sector and current_sector.asteroids:
                 for ast in current_sector.asteroids:
                     if ast.type_key.startswith("ast_mod04") and ast.size_px == 16:
@@ -572,8 +754,10 @@ def main():
                             sx = int(ast.x - camera.x)
                             sy = int(ast.y - camera.y)
                             pygame.draw.circle(screen, (128, 128, 128), (sx, sy), 32, 1)
+
             for bullet in player.bullets:
                 bullet.draw(screen, camera)
+
             # --- ПРИЦЕЛЬНАЯ ПОДСКАЗКА ---
             if locked_target:
                 sx = int(locked_target.x - camera.x)
@@ -592,11 +776,9 @@ def main():
             for drone in drones:
                 drone.draw(screen, camera)
 
-
             # --- ПУЛИ ИСТРЕБИТЕЛЯ ---
             for obj in all_objects:
                 if isinstance(obj, DestroyerShip):
-                    # Обновление пуль
                     for bullet in obj.bullets[:]:
                         bullet.update()
                         if not bullet.is_active():
@@ -604,9 +786,9 @@ def main():
                         elif bullet.rect.colliderect(player.rect):
                             player.take_damage(bullet.damage)
                             obj.bullets.remove(bullet)
-                    # Отрисовка пуль
                     for bullet in obj.bullets:
                         bullet.draw(screen, camera)
+
             # --- МЕНЮ ОБЛОМКА (голографические кнопки) ---
             if ui_active and ui_target_wreck:
                 if ui_target_wreck.is_disassembled or (
@@ -615,36 +797,65 @@ def main():
                     ui_active = False
                     ui_target_wreck = None
                 else:
-                    # Экранные координаты обломка
                     wreck_sx = int(ui_target_wreck.x - camera.x)
                     wreck_sy = int(ui_target_wreck.y - camera.y)
-
-                    # Уменьшенные размеры кнопок
-                    h_btn_w, h_btn_h = 180, 30  # Было 220, 36
-
-                    # Позиция: справа от обломка, отступ 60px от центра
-                    h_base_x = wreck_sx + 60
-                    h_base_y = wreck_sy - h_btn_h - 4  # Верхняя кнопка чуть выше центра
-
-                    # Обновляем rect'ы для кликов
-                    scan_button_rect = pygame.Rect(h_base_x, h_base_y, h_btn_w, h_btn_h)
-                    disassemble_button_rect = pygame.Rect(h_base_x, h_base_y + h_btn_h + HUD_GAP, h_btn_w, h_btn_h)
-
-                    # Время для анимации помех
                     h_time = pygame.time.get_ticks() / 1000.0
 
-                    # Рисуем голографические кнопки
-                    draw_hologram_button(screen, "СКАНИРОВАНИЕ",
-                                         h_base_x, h_base_y, h_btn_w, h_btn_h, h_time)
-                    draw_hologram_button(screen, "РАЗОБРАТЬ",
-                                         h_base_x, h_base_y + h_btn_h + HUD_GAP,
-                                         h_btn_w, h_btn_h, h_time)
+                    module_buttons_rects = {}
 
-            # ОТРИСОВКА ИГРОКА С ЛИНИЕЙ
-            # Передаем interaction_target, чтобы draw() мог нарисовать линию
+                    if not ui_target_wreck.is_scanned:
+                        # --- ЭТАП 1: меню сканирования ---
+                        h_btn_w, h_btn_h = 180, 30
+                        h_base_x = wreck_sx + 60
+                        h_base_y = wreck_sy - h_btn_h - 4
+
+                        scan_button_rect = pygame.Rect(h_base_x, h_base_y, h_btn_w, h_btn_h)
+                        disassemble_button_rect = pygame.Rect(h_base_x, h_base_y + h_btn_h + HUD_GAP, h_btn_w,
+                                                              h_btn_h)
+
+                        draw_hologram_button(screen, "СКАНИРОВАНИЕ",
+                                             h_base_x, h_base_y, h_btn_w, h_btn_h, h_time)
+                        draw_hologram_button(screen, "РАЗОБРАТЬ",
+                                             h_base_x, h_base_y + h_btn_h + HUD_GAP,
+                                             h_btn_w, h_btn_h, h_time)
+
+                    else:
+                        # --- ЭТАП 2: отчёт сканирования ---
+                        h_base_x = wreck_sx + 60
+                        h_base_y = wreck_sy - 80
+
+                        last_btn_y = draw_hologram_scan_report(
+                            screen, ui_target_wreck.ship_name,
+                            ui_target_wreck.modules,
+                            h_base_x, h_base_y, h_time, module_buttons_rects
+                        )
+
+                        h_btn_w, h_btn_h = 200, 30
+                        disassemble_button_rect = pygame.Rect(
+                            h_base_x, last_btn_y + HUD_GAP, h_btn_w, h_btn_h
+                        )
+
+                        scan_button_rect = pygame.Rect(0, 0, 0, 0)
+
+                        draw_hologram_button(screen, "РАЗОБРАТЬ НА РЕСУРСЫ",
+                                             h_base_x, last_btn_y + HUD_GAP,
+                                             h_btn_w, h_btn_h, h_time)
+
+                        # --- ОТРИСОВКА МЕНЮ РЕМОНТА (если активно) ---
+                        if repair_menu_active and repair_target_module:
+                            draw_repair_cost_menu(
+                                screen,
+                                ui_target_wreck,
+                                repair_target_module,
+                                repair_needed_amount,
+                                h_base_x, h_base_y,
+                                h_time
+                            )
+
+            # ОТРИСОВКА ИГРОКА
             player.draw(screen, camera.topleft, interaction_target=interaction_target)
 
-            # --- DEBUG: ИНДИКАТОР НАПРАВЛЕНИЯ К ИСТРЕБИТЕЛЮ И РАЗВЕДЧИКУ ---
+            # --- DEBUG: ИНДИКАТОР НАПРАВЛЕНИЯ ---
             if show_scout_indicator:
 
                 enemies = []
@@ -743,16 +954,15 @@ def main():
             start_x=hud_start_x,
             y_offset=30
         )
-        # --- ПОЛОСА HP ---
-        bar_width = CAMERA_WIDTH // 3       # половина экрана = 400px
-        bar_height = 2
-        bar_x = CAMERA_WIDTH - 700 # по центру
-        bar_y = CAMERA_HEIGHT - bar_height - 4   # 4px отступ снизу
 
-        # Фон (тёмный)
+        # --- ПОЛОСА HP ---
+        bar_width = CAMERA_WIDTH // 3
+        bar_height = 2
+        bar_x = CAMERA_WIDTH - 700
+        bar_y = CAMERA_HEIGHT - bar_height - 4
+
         pygame.draw.rect(screen, (40, 0, 0), (bar_x, bar_y, bar_width, bar_height))
 
-        # Текущее HP (красный), пропорционально
         hp_ratio = max(0, player.hp / player.max_hp)
         current_width = int(bar_width * hp_ratio)
         pygame.draw.rect(screen, (255, 0, 0), (bar_x, bar_y, current_width, bar_height))
@@ -762,7 +972,6 @@ def main():
 
     pygame.quit()
     sys.exit()
-
 
 if __name__ == "__main__":
     main()
