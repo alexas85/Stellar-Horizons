@@ -318,6 +318,16 @@ class PlayerShip:
 
         return True
 
+    def remove_resource(self, name, amount):
+        """Списывает ресурс. Возвращает True, если ресурсов хватило, иначе False."""
+        if name not in self.inventory:
+            return False
+
+        if self.inventory[name] >= amount:
+            self.inventory[name] -= amount
+            return True
+        return False
+
     def update(self, world_objects=None):
         """
         Основной цикл обновления физики.
