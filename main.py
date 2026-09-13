@@ -343,20 +343,37 @@ def main():
                         wreck_sx = int(ui_target_wreck.x - camera.x)
                         wreck_sy = int(ui_target_wreck.y - camera.y)
 
-                        # --- ИСПРАВЛЕНИЕ: Используем те же координаты, что и при отрисовке ---
-                        h_base_x = wreck_sx + 280  # То же смещение, что в отрисовке
+                        # Координаты окна ремонта (должны совпадать с отрисовкой)
+                        h_base_x = wreck_sx + 280
                         h_base_y = wreck_sy - 100
 
                         win_w, win_h = 220, 100
                         btn_w, btn_h = 180, 26
                         btn_x = (win_w - btn_w) // 2
-                        btn_y = win_h - btn_h - 10  # Точная координата Y кнопки внутри окна
+                        btn_y = win_h - btn_h - 10
 
                         repair_btn_rect = pygame.Rect(h_base_x + btn_x, h_base_y + btn_y, btn_w, btn_h)
 
                         if repair_btn_rect.collidepoint(event.pos):
                             print(f"[ACTION] Нажата кнопка 'РЕМОНТИРОВАТЬ' для модуля: {repair_target_module}")
-                            # ЛОГИКА РЕМОНТА
+
+                            # --- ЛОГИКА РЕМОНТА (Универсальная) ---
+                            current_integrity = ui_target_wreck.modules.get(repair_target_module, 0)
+                            needed_percent = 100 - current_integrity
+
+                            # Проверка наличия ресурсов (опционально)
+                            needed_amount = needed_percent * REPAIR_COST_PER_PERCENT
+
+                            if player.inventory.get(REPAIR_RESOURCE_TYPE, 0) >= needed_amount:
+                                # Списываем ресурсы
+                                player.remove_resource(REPAIR_RESOURCE_TYPE, int(needed_amount))
+                                # Восстанавливаем модуль до 100%
+                                ui_target_wreck.modules[repair_target_module] = 100
+                                print(f"[SUCCESS] Модуль '{repair_target_module}' отремонтирован!")
+                            else:
+                                print(f"[ERROR] Недостаточно ресурсов для ремонта '{repair_target_module}'.")
+
+                            # Закрываем меню ремонта
                             repair_menu_active = False
                             repair_target_module = None
                             repair_needed_amount = 0
@@ -380,6 +397,7 @@ def main():
 
                         clicked_module = None
 
+                        # Проходим по всем модулям и проверяем попадание клика
                         for mod_name in ui_target_wreck.modules.keys():
                             rect = pygame.Rect(h_base_x, current_y, btn_w, btn_h)
                             if rect.collidepoint(event.pos):
@@ -388,17 +406,21 @@ def main():
                             current_y += btn_h + gap_y
 
                         if clicked_module:
-                            # --- ЛОГИКА ОТКРЫТИЯ МЕНЮ РЕМОНТА ---
-                            if clicked_module == "Корпус":
-                                current_integrity = ui_target_wreck.modules["Корпус"]
+                            # --- УНИВЕРСАЛЬНАЯ ЛОГИКА ОТКРЫТИЯ МЕНЮ РЕМОНТА ---
+                            current_integrity = ui_target_wreck.modules[clicked_module]
+
+                            # Если модуль уже на 100%, можно не открывать меню или показать сообщение
+                            if current_integrity >= 100:
+                                print(f"[INFO] Модуль '{clicked_module}' уже полностью исправен.")
+                            else:
                                 needed_percent = 100 - current_integrity
                                 needed_amount = needed_percent * REPAIR_COST_PER_PERCENT
+
                                 repair_menu_active = True
                                 repair_target_module = clicked_module
                                 repair_needed_amount = needed_amount
-                                print(f"[INFO] Требуется {needed_amount} металла для ремонта корпуса до 100%")
-                            else:
-                                print(f"[INFO] Клик по модулю '{clicked_module}'. Пока без действия.")
+                                print(
+                                    f"[INFO] Требуется {needed_amount} металла для ремонта '{clicked_module}' до 100%")
 
                         elif disassemble_button_rect.collidepoint(event.pos):
                             wreck = ui_target_wreck
@@ -419,8 +441,7 @@ def main():
                             ui_active = False
                             print("[ACTION] Дрон-сканер запущен")
                         elif disassemble_button_rect.collidepoint(event.pos):
-                            # Разборка без сканирования (если нужна)
-                            pass
+                            pass  # Логика разборки без сканирования
 
         keys = pygame.key.get_pressed()
 
