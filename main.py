@@ -150,6 +150,7 @@ def main():
     # Константа дистанции подсветки (как ты просил)
     INTERACTION_MAX_DIST = 250
     INTERACTION_MAX_DIST_SQ = INTERACTION_MAX_DIST ** 2
+    REPAIR_MENU_OFFSET_X = 240  # Смещение вправо в пикселях
 
     # Переменную нужно создать ДО цикла (где-нибудь рядом с running = True)
     show_scout_indicator = False
@@ -251,6 +252,7 @@ def main():
     def draw_repair_cost_menu(surface, wreck, module_name, needed_amount, x, y, time_offset):
         """
         Рисует окно с расчетом стоимости ремонта.
+        x, y — координаты верхнего левого угла окна.
         """
         font_title = pygame.font.SysFont("consolas", 16, bold=True)
         font_body = pygame.font.SysFont("consolas", 14)
@@ -261,8 +263,6 @@ def main():
 
         # Получаем иконку ресурса (металл)
         res_icon = resource_surfaces.get(REPAIR_RESOURCE_TYPE)
-
-        # Если иконки нет (ошибка конфига), рисуем серый квадрат
         if not res_icon:
             res_icon = pygame.Surface((24, 24))
             res_icon.fill((150, 150, 150))
@@ -293,32 +293,34 @@ def main():
         icon_pos = (10, 15)
         win_surf.blit(res_icon, icon_pos)
 
-        # Текст стоимости (справа от иконки)
-        text_pos = (
-            icon_pos[0] + res_icon.get_width() + 10,
-            icon_pos[1] + 2
-        )
+        # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        # Правильно вычисляем координаты текста, обращаясь к элементам кортежа
+        text_x = icon_pos[0] + res_icon.get_width() + 10
+        text_y = icon_pos[1] + 2
+        text_pos = (text_x, text_y)
+
+        # -------------------------
+
         win_surf.blit(cost_surf, text_pos)
 
         # Кнопка "РЕМОНТИРОВАТЬ" внизу
         btn_w, btn_h = 180, 26
         btn_x = (win_w - btn_w) // 2
-        btn_y = 55
+        btn_y = win_h - btn_h - 10
 
-        # Сохраняем rect кнопки для проверки кликов (вернем его из функции)
-        btn_rect = pygame.Rect(x + btn_x, y + btn_y, btn_w, btn_h)
+        # Рисуем кнопку ремонта внутри окна
+        btn_surf = pygame.Surface((btn_w, btn_h), pygame.SRCALPHA)
+        btn_surf.fill((*HUD_NEON[:3], HUD_BG_ALPHA))
+        pygame.draw.rect(btn_surf, HUD_NEON, (0, 0, btn_w, btn_h), HUD_BORDER_WIDTH)
 
-        draw_hologram_button(win_surf, "РЕМОНТИРОВАТЬ", btn_x, btn_y, btn_w, btn_h, time_offset)
+        btn_text = font_body.render("РЕМОНТИРОВАТЬ", True, HUD_TEXT)
+        btn_text_rect = btn_text.get_rect(center=(btn_w // 2, btn_h // 2))
+        btn_surf.blit(btn_text, btn_text_rect)
 
-        # Свечение окна
-        glow = pygame.Surface((win_w, win_h), pygame.SRCALPHA)
-        glow.fill((*HUD_GLOW, HUD_GLOW_OVERLAY_ALPHA))
-        win_surf.blit(glow, (0, 0), special_flags=pygame.BLEND_ADD)
+        win_surf.blit(btn_surf, (btn_x, btn_y))
 
-        # Рисуем само окно на экране
+        # Рисуем всё окно на основной поверхности
         surface.blit(win_surf, (x, y))
-
-        return btn_rect
 
     while running:
 
@@ -340,25 +342,29 @@ def main():
                     if repair_menu_active and repair_target_module and ui_target_wreck:
                         wreck_sx = int(ui_target_wreck.x - camera.x)
                         wreck_sy = int(ui_target_wreck.y - camera.y)
-                        h_base_x = wreck_sx + 60
-                        h_base_y = wreck_sy - 80
+
+                        # --- ИСПРАВЛЕНИЕ: Используем те же координаты, что и при отрисовке ---
+                        h_base_x = wreck_sx + 280  # То же смещение, что в отрисовке
+                        h_base_y = wreck_sy - 100
 
                         win_w, win_h = 220, 100
                         btn_w, btn_h = 180, 26
                         btn_x = (win_w - btn_w) // 2
-                        btn_y = 55
+                        btn_y = win_h - btn_h - 10  # Точная координата Y кнопки внутри окна
 
                         repair_btn_rect = pygame.Rect(h_base_x + btn_x, h_base_y + btn_y, btn_w, btn_h)
 
                         if repair_btn_rect.collidepoint(event.pos):
                             print(f"[ACTION] Нажата кнопка 'РЕМОНТИРОВАТЬ' для модуля: {repair_target_module}")
-                            # ЗДЕСЬ БУДЕТ ЛОГИКА ЗАПУСКА ДРОНА (следующий этап)
+                            # ЛОГИКА РЕМОНТА
                             repair_menu_active = False
                             repair_target_module = None
+                            repair_needed_amount = 0
                         else:
                             # Клик мимо кнопки — закрываем подменю
                             repair_menu_active = False
                             repair_target_module = None
+
 
                     # 2. Если открыто основное меню корабля (отсканировано)
                     elif ui_active and ui_target_wreck and ui_target_wreck.is_scanned:
@@ -421,8 +427,7 @@ def main():
         # --- ЛОГИКА КНОПКИ ДЕЙСТВИЯ (E) ---
         interaction_target = None
 
-        if (
-                not ui_active and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and
+        if (not ui_active and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and
                 keys[pygame.K_e]):
 
             room_x = int(player.x // ROOM_WIDTH)
@@ -532,8 +537,7 @@ def main():
                 player.accelerate()
 
         # СТРЕЛЬБА (Пробел)
-        if keys[
-            pygame.K_SPACE] and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:
+        if keys[pygame.K_SPACE] and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:
             player.shoot(bullet_sprite)
 
         # --- ЛОГИКА ИГРЫ (физика, коллизии, генерация) ---
@@ -799,6 +803,8 @@ def main():
                 else:
                     wreck_sx = int(ui_target_wreck.x - camera.x)
                     wreck_sy = int(ui_target_wreck.y - camera.y)
+
+                    # --- ИСПРАВЛЕНИЕ: Получаем текущее время для анимации ---
                     h_time = pygame.time.get_ticks() / 1000.0
 
                     module_buttons_rects = {}
@@ -809,9 +815,9 @@ def main():
                         h_base_x = wreck_sx + 60
                         h_base_y = wreck_sy - h_btn_h - 4
 
+                        # Сохраняем прямоугольники для проверки кликов
                         scan_button_rect = pygame.Rect(h_base_x, h_base_y, h_btn_w, h_btn_h)
-                        disassemble_button_rect = pygame.Rect(h_base_x, h_base_y + h_btn_h + HUD_GAP, h_btn_w,
-                                                              h_btn_h)
+                        disassemble_button_rect = pygame.Rect(h_base_x, h_base_y + h_btn_h + HUD_GAP, h_btn_w, h_btn_h)
 
                         draw_hologram_button(screen, "СКАНИРОВАНИЕ",
                                              h_base_x, h_base_y, h_btn_w, h_btn_h, h_time)
@@ -834,23 +840,28 @@ def main():
                         disassemble_button_rect = pygame.Rect(
                             h_base_x, last_btn_y + HUD_GAP, h_btn_w, h_btn_h
                         )
-
-                        scan_button_rect = pygame.Rect(0, 0, 0, 0)
+                        scan_button_rect = pygame.Rect(0, 0, 0, 0)  # Неактивна на этом этапе
 
                         draw_hologram_button(screen, "РАЗОБРАТЬ НА РЕСУРСЫ",
                                              h_base_x, last_btn_y + HUD_GAP,
                                              h_btn_w, h_btn_h, h_time)
 
-                        # --- ОТРИСОВКА МЕНЮ РЕМОНТА (если активно) ---
-                        if repair_menu_active and repair_target_module:
-                            draw_repair_cost_menu(
-                                screen,
-                                ui_target_wreck,
-                                repair_target_module,
-                                repair_needed_amount,
-                                h_base_x, h_base_y,
-                                h_time
-                            )
+                    # --- ОТРИСОВКА МЕНЮ РЕМОНТА (если активно) ---
+                    if repair_menu_active and repair_target_module:
+                        # --- ИСПРАВЛЕНИЕ: Рисуем окно ремонта РЯДОМ С КОРАБЛЕМ, а не по центру ---
+                        # Смещение вправо от центра обломка
+                        repair_menu_x = wreck_sx + 280
+                        repair_menu_y = wreck_sy - 100
+
+                        draw_repair_cost_menu(
+                            screen,
+                            ui_target_wreck,
+                            repair_target_module,
+                            repair_needed_amount,
+                            repair_menu_x,
+                            repair_menu_y,
+                            h_time  # Передаем правильное время
+                        )
 
             # ОТРИСОВКА ИГРОКА
             player.draw(screen, camera.topleft, interaction_target=interaction_target)
