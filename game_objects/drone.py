@@ -167,11 +167,11 @@ class ScanDrone:
 
 class RepairDrone:
     """
-    Дрон-ремонтник: подлетает, зависает, пускает луч сварки, чинит модуль,
+    Дрон-ремонтник: подлетает, летает вокруг обломка, сварит с разных сторон,
     затем возвращается к кораблю игрока.
-    Состояния: FLYING_AROUND -> LOCKED_ON -> REPAIRING -> RETURNING -> DONE
+    Состояния: FLYING_AROUND -> REPAIRING (движение+сварка) -> RETURNING -> DONE
     """
-    BASE_REPAIR_TIME = 3600 # 30 секунд при 60 FPS на 100% ремонта
+    BASE_REPAIR_TIME = 3600 * 5  # 5 часов
 
     def __init__(self, start_x, start_y, target_ship, module_name, drone_sprite, return_target=None):
         self.x = start_x
@@ -194,6 +194,12 @@ class RepairDrone:
         self.elapsed_time = 0
         self.state_timer = 0
 
+        # Подсостояния для REPAIRING
+        self.repair_substate = "moving_to_weld"  # moving_to_weld -> welding -> moving_to_weld ...
+        self.substate_timer = 0
+        self.weld_duration = 90       # 1.5 секунды сварки в одной точке
+        self.current_weld_pos = None  # Текущая точка, куда летит дрон для сварки
+
         # Параметры ремонта
         current_integrity = target_ship.modules.get(module_name, 0)
         needed_percent = 100 - current_integrity
@@ -208,6 +214,17 @@ class RepairDrone:
         self.fade_timer = 0
         self.fade_duration = 30
 
+    def _pick_new_weld_point(self):
+        """Выбирает случайную точку на орбите вокруг обломка."""
+        angle = random.uniform(0, 360)
+        rad = math.radians(angle)
+        offset = random.uniform(-15, 15)
+        r = self.orbit_radius + offset
+        self.current_weld_pos = (
+            self.target_ship.x + r * math.cos(rad),
+            self.target_ship.y + r * math.sin(rad)
+        )
+
     def update(self):
         self.state_timer += 1
 
@@ -219,14 +236,15 @@ class RepairDrone:
 
         # Проверка: если цель уничтожена или разобрана — летим обратно
         if self.target_ship is None or getattr(self.target_ship, 'is_disassembled', False):
-            if self.return_target is not None:
+            if self.return_target is not None and self.state != "RETURNING":
                 self.state = "RETURNING"
                 self.state_timer = 0
-            else:
+            elif self.return_target is None:
                 self.state = "DONE"
+                self.state_timer = 0
             return
 
-        # 1. FLYING_AROUND: хаотичное движение вокруг цели
+        # 1. FLYING_AROUND: первоначальный подлёт
         if self.state == "FLYING_AROUND":
             angle = math.radians(self.state_timer * 0.1)
             rand_offset = random.uniform(-20, 20)
@@ -239,42 +257,60 @@ class RepairDrone:
             dist = math.hypot(dx, dy)
 
             if dist < self.fly_speed or self.state_timer > 120:
-                self.state = "LOCKED_ON"
-                self.locked_pos = (self.x, self.y)
+                self.state = "REPAIRING"
+                self.repair_substate = "moving_to_weld"
+                self.substate_timer = 0
+                self._pick_new_weld_point()
                 self.state_timer = 0
             else:
                 self.x += dx / dist * self.fly_speed
                 self.y += dy / dist * self.fly_speed
 
-        # 2. LOCKED_ON: зависание перед началом сварки
-        elif self.state == "LOCKED_ON":
-            vibrate_x = random.uniform(-2, 2)
-            vibrate_y = random.uniform(-2, 2)
-            self.x = self.locked_pos[0] + vibrate_x
-            self.y = self.locked_pos[1] + vibrate_y
-
-            if self.state_timer > 30:
-                self.state = "REPAIRING"
-                self.state_timer = 0
-
-        # 3. REPAIRING: основной процесс ремонта
+        # 2. REPAIRING: движение между точками сварки
         elif self.state == "REPAIRING":
             self.elapsed_time += 1
+            self.substate_timer += 1
 
-            # Плавно увеличиваем целостность
-            repair_per_frame = 100.0 / self.total_duration
-            current_integrity = self.target_ship.modules.get(self.module_name, 0)
-            new_integrity = min(100, current_integrity + repair_per_frame)
-            self.target_ship.modules[self.module_name] = new_integrity
+            # --- ФАЗА: Полёт к новой точке сварки ---
+            if self.repair_substate == "moving_to_weld":
+                dx = self.current_weld_pos[0] - self.x
+                dy = self.current_weld_pos[1] - self.y
+                dist = math.hypot(dx, dy)
 
-            # Если ремонт завершён — летим обратно
-            if new_integrity >= 100 or self.elapsed_time >= self.total_duration:
+                if dist < self.fly_speed or self.substate_timer > 120:
+                    # Достигли точки — начинаем сварку
+                    self.repair_substate = "welding"
+                    self.substate_timer = 0
+                else:
+                    self.x += dx / dist * self.fly_speed
+                    self.y += dy / dist * self.fly_speed
+
+            # --- ФАЗА: Сварка в текущей точке ---
+            elif self.repair_substate == "welding":
+                # Лёгкая вибрация на месте
+                self.x = self.current_weld_pos[0] + random.uniform(-2, 2)
+                self.y = self.current_weld_pos[1] + random.uniform(-2, 2)
+
+                # Плавно увеличиваем целостность
+                repair_per_frame = 100.0 / self.total_duration
+                current_integrity = self.target_ship.modules.get(self.module_name, 0)
+                new_integrity = min(100, current_integrity + repair_per_frame)
+                self.target_ship.modules[self.module_name] = new_integrity
+
+                # Если время сварки в этой точке вышло — летим к следующей
+                if self.substate_timer >= self.weld_duration:
+                    self.repair_substate = "moving_to_weld"
+                    self.substate_timer = 0
+                    self._pick_new_weld_point()
+
+            # --- Проверка завершения ремонта ---
+            if self.elapsed_time >= self.total_duration:
                 self.target_ship.modules[self.module_name] = 100
                 print(f"[SUCCESS] Модуль '{self.module_name}' отремонтирован! Дрон возвращается.")
                 self.state = "RETURNING"
                 self.state_timer = 0
 
-        # 4. RETURNING: летим к кораблю игрока
+        # 3. RETURNING: летим к кораблю игрока
         elif self.state == "RETURNING":
             if self.return_target is None:
                 self.state = "DONE"
@@ -286,7 +322,6 @@ class RepairDrone:
             dist = math.hypot(dx, dy)
 
             if dist < self.fly_speed:
-                # Достигли игрока — затухаем
                 self.state = "DONE"
                 self.state_timer = 0
             else:
@@ -322,8 +357,8 @@ class RepairDrone:
             rect = rotated.get_rect(center=(int(draw_x), int(draw_y)))
             surface.blit(rotated, rect)
 
-        # Отрисовка луча сварки (ТОЛЬКО в состоянии REPAIRING)
-        if self.state == "REPAIRING":
+        # Отрисовка луча сварки (ТОЛЬКО во время фазы welding)
+        if self.state == "REPAIRING" and self.repair_substate == "welding":
             target_w = self.target_ship.sprite.get_width() / 2
             target_h = self.target_ship.sprite.get_height() / 2
             hit_x = self.target_ship.x + random.uniform(-target_w, target_w)
