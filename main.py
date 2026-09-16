@@ -19,7 +19,7 @@ from game_objects.enemy import DestroyerShip, ScoutShip
 from sprites import get_rocket_sprites
 from game_objects.explosion import Explosion
 from sprites import get_sparks_sprites
-from game_objects.drone import ScanDrone
+from game_objects.drone import ScanDrone, RepairDrone
 from ui_config import HUD_NEON, HUD_GLOW, HUD_TEXT, HUD_BG_ALPHA, HUD_BORDER_WIDTH, HUD_GAP, HUD_NOISE_INTENSITY, HUD_NOISE_LINE_ALPHA, HUD_GLOW_OVERLAY_ALPHA
 
 
@@ -162,6 +162,10 @@ def main():
     repair_target_module = None  # Какой модуль чиним ("Корпус", "Броня" и т.д.)
     repair_needed_amount = 0  # Сколько ресурсов нужно
     drones = []
+    # Список ремонтных дронов
+    repair_drones = []
+    # Словарь для отслеживания активных ремонтов: { (ship_id, module_name): True }
+    active_repairs = {}
 
     btn_w, btn_h = 240, 36
     cx_ui = CAMERA_WIDTH // 2
@@ -357,31 +361,43 @@ def main():
                         if repair_btn_rect.collidepoint(event.pos):
                             print(f"[ACTION] Нажата кнопка 'РЕМОНТИРОВАТЬ' для модуля: {repair_target_module}")
 
-                            # --- ЛОГИКА РЕМОНТА (Универсальная) ---
+                            # --- ЛОГИКА ЗАПУСКА ДРОНА ---
                             current_integrity = ui_target_wreck.modules.get(repair_target_module, 0)
                             needed_percent = 100 - current_integrity
-
-                            # Проверка наличия ресурсов (опционально)
                             needed_amount = needed_percent * REPAIR_COST_PER_PERCENT
 
                             if player.inventory.get(REPAIR_RESOURCE_TYPE, 0) >= needed_amount:
-                                # Списываем ресурсы
-                                player.remove_resource(REPAIR_RESOURCE_TYPE, int(needed_amount))
-                                # Восстанавливаем модуль до 100%
-                                ui_target_wreck.modules[repair_target_module] = 100
-                                print(f"[SUCCESS] Модуль '{repair_target_module}' отремонтирован!")
+                                # Проверяем, не чинится ли уже этот модуль
+                                repair_key = (id(ui_target_wreck), repair_target_module)
+                                if repair_key in active_repairs:
+                                    print(f"[WARNING] Модуль '{repair_target_module}' уже чинится другим дроном!")
+                                else:
+                                    # Списываем ресурсы
+                                    player.remove_resource(REPAIR_RESOURCE_TYPE, int(needed_amount))
+
+                                    # Создаем и запускаем дрон
+                                    new_drone = RepairDrone(
+                                        player.x,
+                                        player.y,
+                                        ui_target_wreck,
+                                        repair_target_module,
+                                        drone_sprite,
+                                        return_target=player
+                                    )
+                                    repair_drones.append(new_drone)
+                                    active_repairs[repair_key] = True
+                                    print(f"[SUCCESS] Дрон-ремонтник запущен для '{repair_target_module}'!")
+
+                                    # Закрываем меню
+                                    repair_menu_active = False
+                                    repair_target_module = None
+                                    repair_needed_amount = 0
                             else:
                                 print(f"[ERROR] Недостаточно ресурсов для ремонта '{repair_target_module}'.")
-
-                            # Закрываем меню ремонта
-                            repair_menu_active = False
-                            repair_target_module = None
-                            repair_needed_amount = 0
                         else:
                             # Клик мимо кнопки — закрываем подменю
                             repair_menu_active = False
                             repair_target_module = None
-
 
                     # 2. Если открыто основное меню корабля (отсканировано)
                     elif ui_active and ui_target_wreck and ui_target_wreck.is_scanned:
@@ -406,10 +422,9 @@ def main():
                             current_y += btn_h + gap_y
 
                         if clicked_module:
-                            # --- УНИВЕРСАЛЬНАЯ ЛОГИКА ОТКРЫТИЯ МЕНЮ РЕМОНТА ---
+                            # --- ЛОГИКА ОТКРЫТИЯ ПОДМЕНЮ СТОИМОСТИ ---
                             current_integrity = ui_target_wreck.modules[clicked_module]
 
-                            # Если модуль уже на 100%, можно не открывать меню или показать сообщение
                             if current_integrity >= 100:
                                 print(f"[INFO] Модуль '{clicked_module}' уже полностью исправен.")
                             else:
@@ -701,6 +716,14 @@ def main():
             if drone.done:
                 drones.remove(drone)
 
+        for rd in repair_drones[:]:
+            rd.update()
+            if rd.done:
+                repair_drones.remove(rd)
+                # Очищаем блокировку ремонта
+                key = (id(rd.target_ship), rd.module_name)
+                active_repairs.pop(key, None)
+
         # Добавляем фрагменты в сектор
         if new_fragments and current_sector:
             current_sector.asteroids.extend(new_fragments)
@@ -815,6 +838,10 @@ def main():
                         bullet.draw(screen, camera)
 
             # --- МЕНЮ ОБЛОМКА (голографические кнопки) ---
+                    # Отрисовка дронов-ремонтников (ПОСЛЕ всех кораблей, но ДО UI)
+            for rd in repair_drones:
+                rd.draw(screen, camera)
+
             if ui_active and ui_target_wreck:
                 if ui_target_wreck.is_disassembled or (
                         ui_target_sector and ui_target_wreck not in ui_target_sector.objects
