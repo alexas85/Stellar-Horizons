@@ -41,11 +41,12 @@ class WorldGenerator:
                     planet_sprite=planet_sprite,
                     station_sprite=station_sprite
                 )
-            # Космическая амёба в секторе (0, 1)
+            # Космическая амёба в секторе (0, 1) — случайная позиция
             if x == 0 and y == 1:
+                margin = 80  # радиус амёбы, чтобы не появлялась вплотную к стенкам
                 amoeba = SpaceAmoeba(
-                    x=ROOM_WIDTH // 2,
-                    y=int(1.5 * ROOM_HEIGHT),
+                    x=random.randint(0 + margin, ROOM_WIDTH - margin),
+                    y=random.randint(ROOM_HEIGHT + margin, 2 * ROOM_HEIGHT - margin),
                     room_left=0,
                     room_top=ROOM_HEIGHT,
                     room_right=ROOM_WIDTH,
@@ -53,7 +54,6 @@ class WorldGenerator:
                 )
                 sector.objects.append(amoeba)
                 amoeba.set_sector(sector)
-
 
             self.sectors[key] = sector
 
