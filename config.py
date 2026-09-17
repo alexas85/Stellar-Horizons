@@ -61,4 +61,4 @@ FUEL_CONSUMPTION_PER_SEC = 5.0 / 60.0
 # Расход энергии на выстрел
 ENERGY_PER_SHOT = 10.0
 # Регенерация энергии: 1 единица в секунду
-ENERGY_REGEN_PER_SEC = 1.0
+ENERGY_REGEN_PER_SEC = 5.0

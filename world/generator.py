@@ -1,5 +1,9 @@
+# world/generator.py
 from .sector import Sector
+from config import ROOM_WIDTH, ROOM_HEIGHT
+from game_objects.amoeba import SpaceAmoeba
 import random
+
 
 
 class WorldGenerator:
@@ -37,6 +41,19 @@ class WorldGenerator:
                     planet_sprite=planet_sprite,
                     station_sprite=station_sprite
                 )
+            # Космическая амёба в секторе (0, 1)
+            if x == 0 and y == 1:
+                amoeba = SpaceAmoeba(
+                    x=ROOM_WIDTH // 2,
+                    y=int(1.5 * ROOM_HEIGHT),
+                    room_left=0,
+                    room_top=ROOM_HEIGHT,
+                    room_right=ROOM_WIDTH,
+                    room_bottom=2 * ROOM_HEIGHT,
+                )
+                sector.objects.append(amoeba)
+                amoeba.set_sector(sector)
+
 
             self.sectors[key] = sector
 

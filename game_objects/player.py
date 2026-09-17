@@ -324,7 +324,8 @@ class PlayerShip:
         if self.is_collecting or self.on_planet_surface or self.is_landing or self.is_docking or self.is_docked:
             return False
 
-        if not asteroid.type_key.startswith("ast_mod04") or asteroid.size_px != 16:
+        if not (asteroid.type_key.startswith("ast_mod04") or asteroid.type_key.startswith(
+                "ast_mod01")) or asteroid.size_px != 16:
             return False
 
         dist_sq = (asteroid.x - self.x) ** 2 + (asteroid.y - self.y) ** 2

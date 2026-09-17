@@ -20,6 +20,7 @@ from sprites import get_rocket_sprites
 from game_objects.explosion import Explosion
 from sprites import get_sparks_sprites
 from game_objects.drone import ScanDrone, RepairDrone
+from game_objects.amoeba import SpaceAmoeba
 from ui_config import HUD_NEON, HUD_GLOW, HUD_TEXT, HUD_BG_ALPHA, HUD_BORDER_WIDTH, HUD_GAP, HUD_NOISE_INTENSITY, HUD_NOISE_LINE_ALPHA, HUD_GLOW_OVERLAY_ALPHA
 
 
@@ -737,7 +738,8 @@ def main():
                                 d_sq = dx * dx + dy * dy
 
                                 if d_sq <= (150 ** 2):
-                                    if ast.type_key.startswith("ast_mod04") and ast.size_px == 16:
+                                    if (ast.type_key.startswith("ast_mod04") or ast.type_key.startswith(
+                                            "ast_mod01")) and ast.size_px == 16:
                                         if d_sq < closest_dist_sq:
                                             closest_dist_sq = d_sq
                                             closest_asteroid = ast
@@ -848,28 +850,25 @@ def main():
         hit_asteroid = player.update(world_objects=check_objects)
 
         if hit_asteroid:
-            is_mod04 = hit_asteroid.type_key.startswith("ast_mod04")
+            # --- ЕДИНАЯ ФИЗИКА СТОЛКНОВЕНИЙ ДЛЯ ВСЕХ АСТЕРОИДОВ ---
+            momentum_x = player.last_vx * player_mass
+            momentum_y = player.last_vy * player_mass
 
-            if is_mod04:
-                momentum_x = player.last_vx * player_mass
-                momentum_y = player.last_vy * player_mass
-                bounce_factor = 0.1
-
-                if abs(momentum_x) < 0.01 and abs(momentum_y) < 0.01:
-                    hit_asteroid.apply_knockback(random.uniform(-0.5, 0.5) * bounce_factor,
-                                                 random.uniform(-0.5, 0.5) * bounce_factor)
-                else:
-                    push_x = momentum_x / hit_asteroid.mass
-                    push_y = momentum_y / hit_asteroid.mass
-                    hit_asteroid.apply_knockback(push_x, push_y)
-
-                recoil_factor = 0.2
-                player.velocity.x -= push_x * (hit_asteroid.mass / player_mass) * recoil_factor
-                player.velocity.y -= push_y * (hit_asteroid.mass / player_mass) * recoil_factor
+            if abs(momentum_x) < 0.01 and abs(momentum_y) < 0.01:
+                # Корабль почти стоял — слабый случайный толчок
+                push_x = random.uniform(-0.5, 0.5) * 0.1
+                push_y = random.uniform(-0.5, 0.5) * 0.1
             else:
-                player.add_resource("metal", 1)
-                if current_sector and hit_asteroid in current_sector.asteroids:
-                    current_sector.asteroids.remove(hit_asteroid)
+                # Передача импульса от корабля к астероиду
+                push_x = momentum_x / hit_asteroid.mass
+                push_y = momentum_y / hit_asteroid.mass
+
+            hit_asteroid.apply_knockback(push_x, push_y)
+
+            # Отдача кораблю (зависит от массы астероида)
+            recoil_factor = 0.2
+            player.velocity.x -= push_x * (hit_asteroid.mass / player_mass) * recoil_factor
+            player.velocity.y -= push_y * (hit_asteroid.mass / player_mass) * recoil_factor
 
         # --- ПОПАДАНИЕ ПУЛЬ ПО АСТЕРОИДАМ ---
         new_fragments = []
@@ -895,6 +894,20 @@ def main():
                                 if frag is not None:
                                     new_fragments.append(frag)
                         break
+        # --- ПОПАДАНИЕ ПУЛЬ ПО АМЁБЕ ---
+        if current_sector and current_sector.objects:
+            for bullet in player.bullets[:]:
+                if not bullet.is_active():
+                    continue
+                for obj in current_sector.objects:
+                    if isinstance(obj, SpaceAmoeba) and not obj.is_destroyed:
+                        if bullet.rect.colliderect(obj.rect):
+                            obj.take_damage(bullet.damage)
+                            if bullet in player.bullets:
+                                player.bullets.remove(bullet)
+                                explosions.append(Explosion(bullet.x, bullet.y, sparks_sprites))
+                            break
+
 
         # --- ОБНОВЛЕНИЕ РАКЕТ ---
         for rocket in rockets[:]:
@@ -950,6 +963,13 @@ def main():
             current_sector.asteroids = [
                 ast for ast in current_sector.asteroids if not ast.marked_for_removal
             ]
+        # ОЧИСТКА УНИЧТОЖЕННОЙ АМЁБЫ
+        if current_sector and current_sector.objects:
+            current_sector.objects = [
+                obj for obj in current_sector.objects
+                if not (isinstance(obj, SpaceAmoeba) and obj.is_destroyed)
+            ]
+
 
         # Движение камеры
         if player.on_planet_surface:
@@ -994,6 +1014,8 @@ def main():
                 if hasattr(obj, 'update'):
                     if isinstance(obj, DestroyerShip):
                         obj.update(target=player)
+                    elif isinstance(obj, SpaceAmoeba):
+                        obj.update(target=player)
                     else:
                         obj.update()
 
@@ -1013,7 +1035,8 @@ def main():
             # --- СЕРАЯ ОКРУЖНОСТЬ ВОКРУГ MOD04 АСТЕРОИДОВ ---
             if current_sector and current_sector.asteroids:
                 for ast in current_sector.asteroids:
-                    if ast.type_key.startswith("ast_mod04") and ast.size_px == 16:
+                    if (ast.type_key.startswith("ast_mod04") or ast.type_key.startswith(
+                            "ast_mod01")) and ast.size_px == 16:
                         dist_sq = (ast.x - player.x) ** 2 + (ast.y - player.y) ** 2
                         if dist_sq <= 150 ** 2:
                             sx = int(ast.x - camera.x)
