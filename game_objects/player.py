@@ -2,7 +2,7 @@
 import pygame
 import math
 import random
-from config import SHIP_ACCELERATION
+from config import SHIP_ACCELERATION, FUEL_CONSUMPTION_PER_SEC, ENERGY_PER_SHOT, ENERGY_REGEN_PER_SEC
 from game_objects.bullet import Bullet
 
 
@@ -80,6 +80,8 @@ class PlayerShip:
         # --- ТОПЛИВО ---
         self.fuel = 100
         self.max_fuel = 100
+        # --- ВНУТРЕННИЕ ТАЙМЕРЫ ---
+        self._energy_regen_accum = 0.0
         # --- ЛИМИТ РЕСУРСОВ ---
         self.max_resource = 50
 
@@ -104,12 +106,16 @@ class PlayerShip:
                 self.angular_velocity -= self.turn_acceleration
 
     def accelerate(self):
+        if self.fuel <= 0:
+            return  # нет топлива — нет ускорения
         rad = math.radians(self.angle)
         direction = pygame.math.Vector2(math.cos(rad), math.sin(rad))
         self.velocity += direction * SHIP_ACCELERATION
         if self.velocity.length() > self.max_speed:
             self.velocity.scale_to_length(self.max_speed)
         self.is_thrusting = True
+        # Расход топлива (пересчёт из секунд в кадры: /60)
+        self.fuel = max(0, self.fuel - FUEL_CONSUMPTION_PER_SEC / 60.0)
 
     def start_landing(self, planet=None):
         self.is_landing = True
@@ -242,6 +248,8 @@ class PlayerShip:
             self.collection_start_time = 0.0
 
     def shoot(self, bullet_sprite):
+        if self.energy < ENERGY_PER_SHOT:
+            return None  # не хватает энергии — выстрел не происходит
         current_time = pygame.time.get_ticks()
         if self.fire_cooldown > 0 and current_time < self.fire_cooldown:
             return None
@@ -258,7 +266,9 @@ class PlayerShip:
 
         self.bullets.append(new_bullet)
         self.fire_cooldown = current_time + self.cooldown_time
+        self.energy = max(0, self.energy - ENERGY_PER_SHOT)
         return new_bullet
+
     def add_resource(self, name, amount):
         """Добавляет ресурс с учётом лимита. Возвращает фактически добавленное количество."""
         if name not in self.inventory:
@@ -339,6 +349,14 @@ class PlayerShip:
         """
         Основной цикл обновления физики.
         Возвращает объект столкновения, если оно произошло, иначе None."""
+        # --- РЕГЕНЕРАЦИЯ ЭНЕРГИИ (от звёзд и планет) ---
+        if self.energy < self.max_energy:
+            self._energy_regen_accum += ENERGY_REGEN_PER_SEC / 60.0
+            if self._energy_regen_accum >= 1.0:
+                regen = int(self._energy_regen_accum)
+                self.energy = min(self.max_energy, self.energy + regen)
+                self._energy_regen_accum -= regen
+
 
                 # --- УНИЧТОЖЕН: корабль не управляется, только дрейфует ---
         if self.is_destroyed:

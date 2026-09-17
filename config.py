@@ -56,3 +56,9 @@ REPAIR_COST_PER_PERCENT = 1.0
 # Тип ресурса, требуемый для ремонта корпуса (должен совпадать с ключом в player.inventory)
 REPAIR_RESOURCE_TYPE = "metal"
 # Настройки ремонта обломков
+# Расход топлива: 5 единиц за минуту = 5/60 за секунду
+FUEL_CONSUMPTION_PER_SEC = 5.0 / 60.0
+# Расход энергии на выстрел
+ENERGY_PER_SHOT = 10.0
+# Регенерация энергии: 1 единица в секунду
+ENERGY_REGEN_PER_SEC = 1.0
