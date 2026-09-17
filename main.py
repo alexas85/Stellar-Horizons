@@ -1220,17 +1220,36 @@ def main():
             y_offset=30
         )
 
-        # --- ПОЛОСА HP ---
-        bar_width = CAMERA_WIDTH // 3
-        bar_height = 2
-        bar_x = CAMERA_WIDTH - 700
-        bar_y = CAMERA_HEIGHT - bar_height - 4
+        # --- ПОЛОСКИ СОСТОЯНИЯ (справа внизу) ---
+        bar_width = 200
+        bar_height = 8
+        bar_gap = 6
+        bar_right_margin = 10
+        bar_bottom_margin = 10
+        bar_x = CAMERA_WIDTH - bar_width - bar_right_margin
 
-        pygame.draw.rect(screen, (40, 0, 0), (bar_x, bar_y, bar_width, bar_height))
+        font_bar = pygame.font.SysFont('consolas', 11, bold=True)
 
-        hp_ratio = max(0, player.hp / player.max_hp)
-        current_width = int(bar_width * hp_ratio)
-        pygame.draw.rect(screen, (255, 0, 0), (bar_x, bar_y, current_width, bar_height))
+        # Цвета: (фон, заливка, текст)
+        bars = [
+            ("HP", player.hp, player.max_hp, (40, 0, 0), (255, 0, 0), (255, 200, 200)),
+            ("ENERGY", player.energy, player.max_energy, (0, 0, 40), (0, 150, 255), (180, 220, 255)),
+            ("FUEL", player.fuel, player.max_fuel, (40, 20, 0), (180, 100, 30), (255, 200, 150)),
+        ]
+
+        for i, (label, value, max_val, bg_color, fill_color, text_color) in enumerate(bars):
+            bar_y = CAMERA_HEIGHT - bar_height - bar_bottom_margin - i * (bar_height + bar_gap)
+
+            pygame.draw.rect(screen, bg_color, (bar_x, bar_y, bar_width, bar_height))
+            ratio = max(0, value / max_val) if max_val > 0 else 0
+            fill_w = int(bar_width * ratio)
+            if fill_w > 0:
+                pygame.draw.rect(screen, fill_color, (bar_x, bar_y, fill_w, bar_height))
+            pygame.draw.rect(screen, (100, 100, 100), (bar_x, bar_y, bar_width, bar_height), 1)
+
+            label_surf = font_bar.render(f"{label} {int(value)}/{max_val}", True, text_color)
+            label_rect = label_surf.get_rect(midleft=(bar_x + 4, bar_y + bar_height // 2))
+            screen.blit(label_surf, label_rect)
 
         pygame.display.flip()
         clock.tick(60)

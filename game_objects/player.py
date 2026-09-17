@@ -74,8 +74,15 @@ class PlayerShip:
         # Здоровье
         self.hp = 100
         self.max_hp = 100
+        # --- ЭНЕРГИЯ (батареи) ---
+        self.energy = 100
+        self.max_energy = 100
+        # --- ТОПЛИВО ---
+        self.fuel = 100
+        self.max_fuel = 100
         # --- ЛИМИТ РЕСУРСОВ ---
         self.max_resource = 50
+
         # --- СОСТОЯНИЕ УНИЧТОЖЕНИЯ ---
         self.is_destroyed = False
         self.destroyed_sprite = None
