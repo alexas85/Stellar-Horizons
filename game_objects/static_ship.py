@@ -1,4 +1,3 @@
-# game_objects/static_ship.py
 import pygame
 import random
 
@@ -14,16 +13,26 @@ class StaticShip:
         self.highlight_alpha = 70
         self.highlight_color = (211, 211, 211)
 
-        # --- СОСТОЯНИЕ ---
         self._is_scanned = False
         self.is_disassembled = False
         self.ship_name = "Destroyer Wreck"
-        self.modules = {}  # Заполняется при сканировании
+        self.modules = {}
         self.resources = {
             "metal": 15,
             "mineral": 5,
             "energy": 3
         }
+
+        # Склад (доступен после ремонта Корпуса до 100%)
+        self.storage = {
+            "metal": 0,
+            "precious": 0,
+            "crystal": 0,
+            "energy": 0,
+            "mineral": 0,
+            "uranium": 0
+        }
+        self.storage_max = 500
 
     @property
     def is_scanned(self):
@@ -31,8 +40,6 @@ class StaticShip:
 
     @is_scanned.setter
     def is_scanned(self, value):
-        """Когда дрон завершает сканирование и ставит True —
-        автоматически генерируются проценты целостности модулей."""
         self._is_scanned = value
         if value and not self.modules:
             self.modules = {
@@ -41,6 +48,27 @@ class StaticShip:
                 "Двигатель": random.randint(0, 100),
                 "Вооружение": random.randint(0, 100),
             }
+
+    @property
+    def is_habitable(self):
+        """True, если Корпус отремонтирован до 100%."""
+        return self._is_scanned and self.modules.get("Корпус", 0) >= 100
+
+    def deposit_resource(self, name, amount):
+        """Помещает ресурс на склад. Возвращает фактически помещённое количество."""
+        space_left = self.storage_max - self.storage.get(name, 0)
+        if space_left <= 0:
+            return 0
+        actual = min(amount, space_left)
+        self.storage[name] = self.storage.get(name, 0) + actual
+        return actual
+
+    def withdraw_resource(self, name, amount):
+        """Забирает ресурс со склада. Возвращает фактически забранное количество."""
+        stored = self.storage.get(name, 0)
+        actual = min(amount, stored)
+        self.storage[name] = stored - actual
+        return actual
 
     def update(self):
         pass

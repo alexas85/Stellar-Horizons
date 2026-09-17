@@ -166,6 +166,12 @@ def main():
     repair_drones = []
     # Словарь для отслеживания активных ремонтов: { (ship_id, module_name): True }
     active_repairs = {}
+    ui_mode = "wreck"
+    storage_deposit_rects = {}
+    storage_withdraw_rects = {}
+    storage_switch_rect = pygame.Rect(0, 0, 0, 0)
+    storage_repair_switch_rect = pygame.Rect(0, 0, 0, 0)
+
 
     btn_w, btn_h = 240, 36
     cx_ui = CAMERA_WIDTH // 2
@@ -381,6 +387,68 @@ def main():
         text_rect = text_surf.get_rect(midbottom=(wreck_sx, bar_y - 2))
         surface.blit(text_surf, text_rect)
 
+    def draw_storage_ui(surface, wreck, player, resource_surfaces, x, y, time_offset,
+                        deposit_rects, withdraw_rects):
+        font_header = pygame.font.SysFont("consolas", 18, bold=True)
+        font_body = pygame.font.SysFont("consolas", 13, bold=True)
+
+        header_surf = font_header.render("СКЛАД", True, HUD_NEON)
+        surface.blit(header_surf, (x, y))
+
+        deposit_rects.clear()
+        withdraw_rects.clear()
+
+        resource_order = ["metal", "precious", "crystal", "energy", "mineral", "uranium"]
+        resource_names = {
+            "metal": "Металл", "precious": "Драг.мет", "crystal": "Кристалл",
+            "energy": "Энергия", "mineral": "Минерал", "uranium": "Уран"
+        }
+
+        start_y = y + 28
+        row_h = 28
+        gap_y = 4
+        current_y = start_y
+
+        for res_name in resource_order:
+            player_count = player.inventory.get(res_name, 0)
+            base_count = wreck.storage.get(res_name, 0)
+
+            icon = resource_surfaces.get(res_name)
+            if icon:
+                small_icon = pygame.transform.smoothscale(icon, (16, 16))
+                surface.blit(small_icon, (x, current_y + 3))
+
+            name_surf = font_body.render(resource_names[res_name], True, HUD_TEXT)
+            surface.blit(name_surf, (x + 22, current_y + 5))
+
+            player_text = f"{player_count}/{player.max_resource}"
+            surface.blit(font_body.render(player_text, True, HUD_TEXT), (x + 80, current_y + 5))
+
+            dep_w, dep_h = 90, 22
+            dep_x = x + 140
+            dep_y = current_y + 2
+            deposit_rects[res_name] = pygame.Rect(dep_x, dep_y, dep_w, dep_h)
+            draw_hologram_button(surface, "ПОЛОЖИТЬ", dep_x, dep_y, dep_w, dep_h, time_offset)
+
+            wd_w, wd_h = 90, 22
+            wd_x = x + 240
+            wd_y = current_y + 2
+            withdraw_rects[res_name] = pygame.Rect(wd_x, wd_y, wd_w, wd_h)
+            draw_hologram_button(surface, "ЗАБРАТЬ", wd_x, wd_y, wd_w, wd_h, time_offset)
+
+            base_text = f"{base_count}/{wreck.storage_max}"
+            surface.blit(font_body.render(base_text, True, HUD_TEXT), (x + 340, current_y + 5))
+
+            current_y += row_h + gap_y
+
+        rep_w, rep_h = 200, 28
+        rep_x = x
+        rep_y = current_y + 6
+        repair_rect = pygame.Rect(rep_x, rep_y, rep_w, rep_h)
+        draw_hologram_button(surface, "РЕМОНТ МОДУЛЕЙ", rep_x, rep_y, rep_w, rep_h, time_offset)
+        return repair_rect
+
+
     while running:
 
         # 1. Обработка событий
@@ -397,8 +465,43 @@ def main():
                 if event.button == 1:  # Левая кнопка — UI
                     # --- ЛОГИКА КЛИКОВ ПО UI ---
 
+                    # 0. Если открыт режим склада
+                    if ui_mode == "storage" and ui_active and ui_target_wreck:
+                        clicked_action = False
+
+                        for res_name, rect in storage_deposit_rects.items():
+                            if rect.collidepoint(event.pos):
+                                amount = player.inventory.get(res_name, 0)
+                                if amount > 0:
+                                    actual = ui_target_wreck.deposit_resource(res_name, amount)
+                                    if actual > 0:
+                                        player.remove_resource(res_name, actual)
+                                        print(f"[STORAGE] Положено {actual} {res_name}")
+                                clicked_action = True
+                                break
+
+                        if not clicked_action:
+                            for res_name, rect in storage_withdraw_rects.items():
+                                if rect.collidepoint(event.pos):
+                                    amount = ui_target_wreck.storage.get(res_name, 0)
+                                    if amount > 0:
+                                        actual = player.add_resource(res_name, amount)
+                                        if actual > 0:
+                                            ui_target_wreck.withdraw_resource(res_name, actual)
+                                            print(f"[STORAGE] Забрано {actual} {res_name}")
+                                    clicked_action = True
+                                    break
+
+                        if not clicked_action:
+                            if storage_repair_switch_rect.collidepoint(event.pos):
+                                ui_mode = "wreck"
+                                repair_menu_active = False
+                                repair_target_module = None
+                                print("[ACTION] Переключение в режим ремонта")
+
+
                     # 1. Если открыто меню ремонта (подменю)
-                    if repair_menu_active and repair_target_module and ui_target_wreck:
+                    elif repair_menu_active and repair_target_module and ui_target_wreck:
                         wreck_sx = int(ui_target_wreck.x - camera.x)
                         wreck_sy = int(ui_target_wreck.y - camera.y)
 
@@ -502,6 +605,13 @@ def main():
                             ui_active = False
                             print("[ACTION] Обломок разобран на ресурсы")
 
+                        elif storage_switch_rect.collidepoint(event.pos) and ui_target_wreck.is_habitable:
+                            ui_mode = "storage"
+                            repair_menu_active = False
+                            repair_target_module = None
+                            print("[ACTION] Переключение в режим склада")
+
+
                     # 3. Если не отсканировано
                     elif ui_active and ui_target_wreck and not ui_target_wreck.is_scanned:
                         if scan_button_rect.collidepoint(event.pos):
@@ -576,7 +686,12 @@ def main():
                         ui_target_wreck = near_wreck
                         ui_target_sector = sector
                         interaction_target = near_wreck
-                        print("[ACTION] Меню обломка корабля открыто")
+                        if near_wreck.is_habitable:
+                            ui_mode = "storage"
+                            print("[ACTION] Склад открыт")
+                        else:
+                            ui_mode = "wreck"
+                            print("[ACTION] Меню обломка корабля открыто")
                     else:
                         # 4. Добыча астероида
                         closest_asteroid = None
@@ -600,6 +715,7 @@ def main():
                                 print(f"[ACTION] Добыча начата с {closest_asteroid.type_key}")
                             interaction_target = closest_asteroid
 
+
         # --- КНОПКА ОТКАТА (Q) ---
         if keys[pygame.K_q] and ui_active:
             ui_active = False
@@ -607,6 +723,7 @@ def main():
             ui_target_sector = None
             repair_menu_active = False
             repair_target_module = None
+            ui_mode = "wreck"
             print("[ACTION] Меню обломка закрыто")
 
         if keys[pygame.K_q] and (player.is_docking or player.is_docked):
@@ -914,19 +1031,25 @@ def main():
                 else:
                     wreck_sx = int(ui_target_wreck.x - camera.x)
                     wreck_sy = int(ui_target_wreck.y - camera.y)
-
-                    # --- ИСПРАВЛЕНИЕ: Получаем текущее время для анимации ---
                     h_time = pygame.time.get_ticks() / 1000.0
-
                     module_buttons_rects = {}
 
-                    if not ui_target_wreck.is_scanned:
+                    if ui_mode == "storage":
+                        # --- РЕЖИМ СКЛАДА ---
+                        h_base_x = wreck_sx + 60
+                        h_base_y = wreck_sy - 100
+                        storage_repair_switch_rect = draw_storage_ui(
+                            screen, ui_target_wreck, player, resource_surfaces,
+                            h_base_x, h_base_y, h_time,
+                            storage_deposit_rects, storage_withdraw_rects
+                        )
+
+                    elif not ui_target_wreck.is_scanned:
                         # --- ЭТАП 1: меню сканирования ---
                         h_btn_w, h_btn_h = 180, 30
                         h_base_x = wreck_sx + 60
                         h_base_y = wreck_sy - h_btn_h - 4
 
-                        # Сохраняем прямоугольники для проверки кликов
                         scan_button_rect = pygame.Rect(h_base_x, h_base_y, h_btn_w, h_btn_h)
                         disassemble_button_rect = pygame.Rect(h_base_x, h_base_y + h_btn_h + HUD_GAP, h_btn_w, h_btn_h)
 
@@ -951,16 +1074,24 @@ def main():
                         disassemble_button_rect = pygame.Rect(
                             h_base_x, last_btn_y + HUD_GAP, h_btn_w, h_btn_h
                         )
-                        scan_button_rect = pygame.Rect(0, 0, 0, 0)  # Неактивна на этом этапе
+                        scan_button_rect = pygame.Rect(0, 0, 0, 0)
 
                         draw_hologram_button(screen, "РАЗОБРАТЬ НА РЕСУРСЫ",
                                              h_base_x, last_btn_y + HUD_GAP,
                                              h_btn_w, h_btn_h, h_time)
 
+                        # Кнопка "СКЛАД" если Корпус отремонтирован
+                        if ui_target_wreck.is_habitable:
+                            sw_w, sw_h = 200, 30
+                            sw_y = last_btn_y + HUD_GAP + h_btn_h + HUD_GAP
+                            storage_switch_rect = pygame.Rect(h_base_x, sw_y, sw_w, sw_h)
+                            draw_hologram_button(screen, "СКЛАД",
+                                                 h_base_x, sw_y, sw_w, sw_h, h_time)
+                        else:
+                            storage_switch_rect = pygame.Rect(0, 0, 0, 0)
+
                     # --- ОТРИСОВКА МЕНЮ РЕМОНТА (если активно) ---
                     if repair_menu_active and repair_target_module:
-                        # --- ИСПРАВЛЕНИЕ: Рисуем окно ремонта РЯДОМ С КОРАБЛЕМ, а не по центру ---
-                        # Смещение вправо от центра обломка
                         repair_menu_x = wreck_sx + 280
                         repair_menu_y = wreck_sy - 100
 
@@ -971,7 +1102,7 @@ def main():
                             repair_needed_amount,
                             repair_menu_x,
                             repair_menu_y,
-                            h_time  # Передаем правильное время
+                            h_time
                         )
 
             # ОТРИСОВКА ИГРОКА
