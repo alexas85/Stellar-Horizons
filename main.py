@@ -326,6 +326,61 @@ def main():
         # Рисуем всё окно на основной поверхности
         surface.blit(win_surf, (x, y))
 
+    def draw_repair_progress_bar(surface, wreck, drones, camera, time_offset):
+        """Рисует полосу прогресса ремонта над обломком, если активен дрон-ремонтник."""
+        # Ищем активный дрон-ремонтник для этого обломка
+        active_drone = None
+        for rd in drones:
+            if rd.target_ship is wreck and rd.state == "REPAIRING":
+                active_drone = rd
+                break
+
+        if active_drone is None:
+            return
+
+        # Расчёт прогресса
+        progress = min(1.0, active_drone.elapsed_time / active_drone.total_duration)
+
+        # Координаты обломка на экране
+        wreck_sx = int(wreck.x - camera.x)
+        wreck_sy = int(wreck.y - camera.y)
+
+        # Размеры полосы
+        bar_w = wreck.sprite.get_width()  # Ширина = ширина спрайта корабля
+        bar_h = 6
+        bar_x = wreck_sx - bar_w // 2
+        bar_y = wreck_sy - wreck.sprite.get_height() // 2 - 20  # Над кораблём
+
+        # Фон полосы (тёмный)
+        bg_surf = pygame.Surface((bar_w, bar_h), pygame.SRCALPHA)
+        bg_surf.fill((20, 20, 30, 180))
+        surface.blit(bg_surf, (bar_x, bar_y))
+
+        # Заполненная часть (неоновый циан)
+        fill_w = int(bar_w * progress)
+        if fill_w > 0:
+            fill_surf = pygame.Surface((fill_w, bar_h), pygame.SRCALPHA)
+            fill_surf.fill((*HUD_NEON[:3], 220))
+            surface.blit(fill_surf, (bar_x, bar_y))
+
+        # Рамка полосы
+        pygame.draw.rect(surface, HUD_NEON, (bar_x, bar_y, bar_w, bar_h), 1)
+
+        # Эффект мерцания (помехи)
+        for i in range(0, bar_h, 3):
+            shift = math.sin(time_offset * 3 + i * 0.7) * 2
+            line_y = bar_y + i + int(shift)
+            if bar_y <= line_y < bar_y + bar_h:
+                pygame.draw.line(surface, (*HUD_GLOW[:3], 80),
+                                 (bar_x, line_y), (bar_x + bar_w, line_y), 1)
+
+        # Текст с процентами
+        font = pygame.font.SysFont("consolas", 12, bold=True)
+        percent_text = f"{active_drone.module_name}: {int(progress * 100)}%"
+        text_surf = font.render(percent_text, True, HUD_NEON)
+        text_rect = text_surf.get_rect(midbottom=(wreck_sx, bar_y - 2))
+        surface.blit(text_surf, text_rect)
+
     while running:
 
         # 1. Обработка событий
@@ -839,8 +894,16 @@ def main():
 
             # --- МЕНЮ ОБЛОМКА (голографические кнопки) ---
                     # Отрисовка дронов-ремонтников (ПОСЛЕ всех кораблей, но ДО UI)
+            # Отрисовка дронов-ремонтников (ПОСЛЕ всех кораблей, но ДО UI)
             for rd in repair_drones:
                 rd.draw(screen, camera)
+
+            # Полоса прогресса ремонта (если активен дрон-ремонтник)
+            h_time = pygame.time.get_ticks() / 1000.0
+            for rd in repair_drones:
+                if rd.target_ship and not rd.target_ship.is_disassembled:
+                    draw_repair_progress_bar(screen, rd.target_ship, repair_drones, camera, h_time)
+                    break
 
             if ui_active and ui_target_wreck:
                 if ui_target_wreck.is_disassembled or (

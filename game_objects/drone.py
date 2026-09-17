@@ -167,11 +167,10 @@ class ScanDrone:
 
 class RepairDrone:
     """
-    Дрон-ремонтник: подлетает, летает вокруг обломка, сварит с разных сторон,
-    затем возвращается к кораблю игрока.
-    Состояния: FLYING_AROUND -> REPAIRING (движение+сварка) -> RETURNING -> DONE
+    Дрон-ремонтник: летает ВНУТРИ спрайта корабля-обломка,
+    сваривает с разных точек, потом возвращается к игроку.
     """
-    BASE_REPAIR_TIME = 3600 * 5  # 5 часов
+    BASE_REPAIR_TIME = 3600 * 5  # 30 секунд при 60 FPS на 100% ремонта
 
     def __init__(self, start_x, start_y, target_ship, module_name, drone_sprite, return_target=None):
         self.x = start_x
@@ -185,8 +184,12 @@ class RepairDrone:
         self.state = "FLYING_AROUND"
 
         # Параметры движения
-        self.orbit_radius = 120
-        self.fly_speed = 4.0
+        # Вычисляем «безопасный» радиус: половина меньшего размера спрайта, но не больше 60
+        tw = target_ship.sprite.get_width()
+        th = target_ship.sprite.get_height()
+        max_radius = min(tw, th) // 2
+        self.orbit_radius = max(10, max_radius // 2)  # примерно четверть от половины → внутри спрайта
+        self.fly_speed = 2.0
         self.locked_pos = None
 
         # Таймеры
@@ -195,10 +198,10 @@ class RepairDrone:
         self.state_timer = 0
 
         # Подсостояния для REPAIRING
-        self.repair_substate = "moving_to_weld"  # moving_to_weld -> welding -> moving_to_weld ...
+        self.repair_substate = "moving_to_weld"
         self.substate_timer = 0
-        self.weld_duration = 90       # 1.5 секунды сварки в одной точке
-        self.current_weld_pos = None  # Текущая точка, куда летит дрон для сварки
+        self.weld_duration = 90       # 1.5 секунд сварки в одной точке (было 60)
+        self.current_weld_pos = None
 
         # Параметры ремонта
         current_integrity = target_ship.modules.get(module_name, 0)
@@ -215,14 +218,17 @@ class RepairDrone:
         self.fade_duration = 30
 
     def _pick_new_weld_point(self):
-        """Выбирает случайную точку на орбите вокруг обломка."""
-        angle = random.uniform(0, 360)
-        rad = math.radians(angle)
-        offset = random.uniform(-15, 15)
-        r = self.orbit_radius + offset
+        """Выбирает случайную точку ВНУТРИ спрайта корабля-обломка."""
+        tw = self.target_ship.sprite.get_width()
+        th = self.target_ship.sprite.get_height()
+
+        # Смещаем точку на случайное расстояние внутри размеров спрайта
+        offset_x = random.uniform(-tw / 2, tw / 2)
+        offset_y = random.uniform(-th / 2, th / 2)
+
         self.current_weld_pos = (
-            self.target_ship.x + r * math.cos(rad),
-            self.target_ship.y + r * math.sin(rad)
+            self.target_ship.x + offset_x,
+            self.target_ship.y + offset_y
         )
 
     def update(self):
@@ -247,7 +253,7 @@ class RepairDrone:
         # 1. FLYING_AROUND: первоначальный подлёт
         if self.state == "FLYING_AROUND":
             angle = math.radians(self.state_timer * 0.1)
-            rand_offset = random.uniform(-20, 20)
+            rand_offset = random.uniform(-10, 10)  # небольшой разброс
 
             target_x = self.target_ship.x + (self.orbit_radius + rand_offset) * math.cos(angle)
             target_y = self.target_ship.y + (self.orbit_radius + rand_offset) * math.sin(angle)
@@ -256,7 +262,7 @@ class RepairDrone:
             dy = target_y - self.y
             dist = math.hypot(dx, dy)
 
-            if dist < self.fly_speed or self.state_timer > 120:
+            if dist < self.fly_speed or self.state_timer > 90:
                 self.state = "REPAIRING"
                 self.repair_substate = "moving_to_weld"
                 self.substate_timer = 0
@@ -266,7 +272,7 @@ class RepairDrone:
                 self.x += dx / dist * self.fly_speed
                 self.y += dy / dist * self.fly_speed
 
-        # 2. REPAIRING: движение между точками сварки
+        # 2. REPAIRING: движение между точками сварки ВНУТРИ корабля
         elif self.state == "REPAIRING":
             self.elapsed_time += 1
             self.substate_timer += 1
@@ -277,8 +283,7 @@ class RepairDrone:
                 dy = self.current_weld_pos[1] - self.y
                 dist = math.hypot(dx, dy)
 
-                if dist < self.fly_speed or self.substate_timer > 120:
-                    # Достигли точки — начинаем сварку
+                if dist < self.fly_speed or self.substate_timer > 90:
                     self.repair_substate = "welding"
                     self.substate_timer = 0
                 else:
@@ -287,17 +292,15 @@ class RepairDrone:
 
             # --- ФАЗА: Сварка в текущей точке ---
             elif self.repair_substate == "welding":
-                # Лёгкая вибрация на месте
+                # Лёгкая вибрация вокруг выбранной точки
                 self.x = self.current_weld_pos[0] + random.uniform(-2, 2)
                 self.y = self.current_weld_pos[1] + random.uniform(-2, 2)
 
-                # Плавно увеличиваем целостность
                 repair_per_frame = 100.0 / self.total_duration
                 current_integrity = self.target_ship.modules.get(self.module_name, 0)
                 new_integrity = min(100, current_integrity + repair_per_frame)
                 self.target_ship.modules[self.module_name] = new_integrity
 
-                # Если время сварки в этой точке вышло — летим к следующей
                 if self.substate_timer >= self.weld_duration:
                     self.repair_substate = "moving_to_weld"
                     self.substate_timer = 0
@@ -333,7 +336,7 @@ class RepairDrone:
         draw_x = self.x - cam_x
         draw_y = self.y - cam_y
 
-        # Угол поворота: при возвращении смотрим на игрока, иначе — на обломок
+        # Угол поворота: при возвращении смотрим на игрока, иначе — на центр обломка
         if self.state == "RETURNING" and self.return_target is not None:
             angle_to_target = math.degrees(math.atan2(
                 self.return_target.y - self.y,
@@ -345,7 +348,6 @@ class RepairDrone:
                 self.target_ship.x - self.x
             ))
 
-        # Отрисовка дрона с затуханием
         alpha = 255
         if self.state == "DONE":
             alpha = max(0, 255 - int(255 * self.fade_timer / self.fade_duration))
@@ -359,6 +361,7 @@ class RepairDrone:
 
         # Отрисовка луча сварки (ТОЛЬКО во время фазы welding)
         if self.state == "REPAIRING" and self.repair_substate == "welding":
+            # Точка попадания луча — случайная внутри спрайта цели
             target_w = self.target_ship.sprite.get_width() / 2
             target_h = self.target_ship.sprite.get_height() / 2
             hit_x = self.target_ship.x + random.uniform(-target_w, target_w)
@@ -367,7 +370,6 @@ class RepairDrone:
             start_pos = (draw_x, draw_y)
             end_pos = (hit_x - cam_x, hit_y - cam_y)
 
-            # Эффект мерцания
             self.spark_timer += 1
             if self.spark_timer >= self.spark_interval:
                 self.spark_timer = 0
@@ -380,7 +382,6 @@ class RepairDrone:
 
             pygame.draw.line(surface, line_color, start_pos, end_pos, line_width)
 
-            # Искры
             if self.spark_timer == 0:
                 spark_count = random.randint(1, 3)
                 for _ in range(spark_count):
