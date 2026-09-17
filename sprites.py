@@ -166,3 +166,10 @@ def get_scan_sprites():
         path = f"projectiles/scan_anim{i:02d}_32px.png"
         sprites.append(load_image(path))
     return sprites
+def get_destroyer_debris_sprites():
+    """Загружает 3 спрайта осколков истребителя."""
+    sprites = []
+    for i in range(1, 4):
+        path = f"ships/class_4/destroyer_debris_{i}.png"
+        sprites.append(load_image(path))
+    return sprites

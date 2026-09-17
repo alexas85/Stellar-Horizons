@@ -14,8 +14,10 @@ StellarHorizons/
 │ ├── station.py
 │ ├── bullet.py
 │ ├── drone.py
+│ ├── debris.py
 │ ├── explosion.py
 │ ├── rocket.py
+│ ├── amoeba.py
 │ ├── particle_rocket.py
 ├── world/ # Логика мира: сектора, генерация, переходы между комнатами
 │ ├── __init__.py

@@ -21,6 +21,8 @@ from game_objects.explosion import Explosion
 from sprites import get_sparks_sprites
 from game_objects.drone import ScanDrone, RepairDrone
 from game_objects.amoeba import SpaceAmoeba
+from game_objects.debris import ShipDebris
+from sprites import get_destroyer_debris_sprites
 from ui_config import HUD_NEON, HUD_GLOW, HUD_TEXT, HUD_BG_ALPHA, HUD_BORDER_WIDTH, HUD_GAP, HUD_NOISE_INTENSITY, HUD_NOISE_LINE_ALPHA, HUD_GLOW_OVERLAY_ALPHA
 
 
@@ -147,6 +149,9 @@ def main():
     camera = pygame.Rect(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT)
     fire_rocket = False
     rockets = []
+    debris_list = []
+    destroyer_debris_sprites = get_destroyer_debris_sprites()
+
     locked_target = None
     running = True
 
@@ -917,7 +922,24 @@ def main():
                 ex = rocket.x + math.cos(rad) * 20
                 ey = rocket.y + math.sin(rad) * 20
                 explosions.append(Explosion(ex, ey, explosion_sprites))
-                rocket.target.take_damage(100)
+
+                target = rocket.target
+                was_destroyed = target.is_destroyed
+                target.take_damage(100)
+
+                # Если истребитель только что уничтожен — спавним осколки
+                if (isinstance(target, DestroyerShip)
+                        and not was_destroyed
+                        and target.is_destroyed
+                        and destroyer_debris_sprites):
+                    for debris_sprite in destroyer_debris_sprites:
+                        debris = ShipDebris(target.x, target.y, debris_sprite)
+                        debris_list.append(debris)
+                    # Удаляем истребитель из сектора
+                    if current_sector and target in current_sector.objects:
+                        current_sector.objects.remove(target)
+                    print("[ACTION] Истребитель разрушен на осколки")
+
                 rockets.remove(rocket)
             elif not rocket.is_active():
                 rockets.remove(rocket)
@@ -927,6 +949,13 @@ def main():
             exp.update()
             if exp.done:
                 explosions.remove(exp)
+
+        # --- ОБНОВЛЕНИЕ ОСКОЛКОВ ---
+        for debris in debris_list[:]:
+            debris.update()
+            if debris.is_expired:
+                debris_list.remove(debris)
+
 
         # --- ОБНОВЛЕНИЕ ДРОНОВ ---
 
@@ -1064,6 +1093,10 @@ def main():
             # --- ВЗРЫВЫ ---
             for exp in explosions:
                 exp.draw(screen, camera)
+
+            # --- ОСКОЛКИ ---
+            for debris in debris_list:
+                debris.draw(screen, camera)
 
             # --- ДРОНЫ ---
             for drone in drones:
