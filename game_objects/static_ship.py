@@ -1,3 +1,4 @@
+# game_objects/static_ship.py
 import pygame
 import random
 

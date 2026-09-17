@@ -269,35 +269,50 @@ def main():
     def draw_repair_cost_menu(surface, wreck, module_name, needed_amount, x, y, time_offset):
         """
         Рисует окно с расчетом стоимости ремонта.
-        x, y — координаты верхнего левого угла окна.
+        Показывает требуемое количество и наличие ресурса у игрока.
         """
         font_title = pygame.font.SysFont("consolas", 16, bold=True)
         font_body = pygame.font.SysFont("consolas", 14)
 
-        # Заголовок: "РЕМОНТ: Корпус"
         title_text = f"РЕМОНТ: {module_name}"
         title_surf = font_title.render(title_text, True, HUD_NEON)
 
-        # Получаем иконку ресурса (металл)
         res_icon = resource_surfaces.get(REPAIR_RESOURCE_TYPE)
         if not res_icon:
             res_icon = pygame.Surface((24, 24))
             res_icon.fill((150, 150, 150))
 
-        # Текст стоимости
-        cost_text = f"Требуется: {int(needed_amount)} ед."
-        cost_surf = font_body.render(cost_text, True, HUD_TEXT)
+        available = player.inventory.get(REPAIR_RESOURCE_TYPE, 0)
+        needed_int = int(needed_amount)
 
-        # Размеры окна
-        win_w = 220
-        win_h = 100
+        if available >= needed_int:
+            cost_color = HUD_TEXT
+            cost_text = f"Требуется: {needed_int} ед."
+        else:
+            can_repair = int(available / REPAIR_COST_PER_PERCENT)
+            cost_color = (255, 200, 80)
+            cost_text = f"Требуется: {needed_int} ед. (есть: {available})"
 
-        # Рисуем фон окна (рамку)
+        cost_surf = font_body.render(cost_text, True, cost_color)
+
+        # Подсказка о частичном ремонте
+        if available < needed_int and available > 0:
+            partial_text = f"Будет восстановлено: +{can_repair}%"
+            partial_surf = font_body.render(partial_text, True, (255, 200, 80))
+        elif available == 0:
+            partial_text = "Недостаточно металла!"
+            partial_surf = font_body.render(partial_text, True, (255, 80, 80))
+        else:
+            partial_text = "Полное восстановление: +100%"
+            partial_surf = font_body.render(partial_text, True, (100, 255, 100))
+
+        win_w = 260
+        win_h = 110
+
         win_surf = pygame.Surface((win_w, win_h), pygame.SRCALPHA)
         win_surf.fill((*HUD_NEON[:3], HUD_BG_ALPHA))
         pygame.draw.rect(win_surf, HUD_NEON, (0, 0, win_w, win_h), HUD_BORDER_WIDTH)
 
-        # Эффект помех (шум)
         for i in range(0, win_h, 6):
             shift = math.sin(time_offset * 2 + i * 0.5) * HUD_NOISE_INTENSITY
             line_y = i + int(shift)
@@ -305,38 +320,28 @@ def main():
                 pygame.draw.line(win_surf, (*HUD_GLOW, HUD_NOISE_LINE_ALPHA),
                                  (0, line_y), (win_w, line_y))
 
-        # Отрисовка элементов внутри окна
-        # Иконка ресурса (слева)
-        icon_pos = (10, 15)
-        win_surf.blit(res_icon, icon_pos)
+        win_surf.blit(title_surf, (10, 8))
+        win_surf.blit(res_icon, (10, 30))
+        win_surf.blit(cost_surf, (res_icon.get_width() + 20, 33))
+        win_surf.blit(partial_surf, (10, 56))
 
-        # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-        # Правильно вычисляем координаты текста, обращаясь к элементам кортежа
-        text_x = icon_pos[0] + res_icon.get_width() + 10
-        text_y = icon_pos[1] + 2
-        text_pos = (text_x, text_y)
-
-        # -------------------------
-
-        win_surf.blit(cost_surf, text_pos)
-
-        # Кнопка "РЕМОНТИРОВАТЬ" внизу
-        btn_w, btn_h = 180, 26
+        btn_w, btn_h = 200, 26
         btn_x = (win_w - btn_w) // 2
-        btn_y = win_h - btn_h - 10
+        btn_y = win_h - btn_h - 8
 
-        # Рисуем кнопку ремонта внутри окна
         btn_surf = pygame.Surface((btn_w, btn_h), pygame.SRCALPHA)
         btn_surf.fill((*HUD_NEON[:3], HUD_BG_ALPHA))
         pygame.draw.rect(btn_surf, HUD_NEON, (0, 0, btn_w, btn_h), HUD_BORDER_WIDTH)
 
-        btn_text = font_body.render("РЕМОНТИРОВАТЬ", True, HUD_TEXT)
+        if available > 0:
+            btn_text = font_body.render("РЕМОНТИРОВАТЬ", True, HUD_TEXT)
+        else:
+            btn_text = font_body.render("НЕТ МЕТАЛЛА", True, (255, 80, 80))
+
         btn_text_rect = btn_text.get_rect(center=(btn_w // 2, btn_h // 2))
         btn_surf.blit(btn_text, btn_text_rect)
-
         win_surf.blit(btn_surf, (btn_x, btn_y))
 
-        # Рисуем всё окно на основной поверхности
         surface.blit(win_surf, (x, y))
 
     def draw_repair_progress_bar(surface, wreck, drones, camera, time_offset):
@@ -516,8 +521,8 @@ def main():
                         h_base_x = wreck_sx + 280
                         h_base_y = wreck_sy - 100
 
-                        win_w, win_h = 220, 100
-                        btn_w, btn_h = 180, 26
+                        win_w, win_h = 260, 110
+                        btn_w, btn_h = 200, 26
                         btn_x = (win_w - btn_w) // 2
                         btn_y = win_h - btn_h - 10
 
@@ -526,39 +531,60 @@ def main():
                         if repair_btn_rect.collidepoint(event.pos):
                             print(f"[ACTION] Нажата кнопка 'РЕМОНТИРОВАТЬ' для модуля: {repair_target_module}")
 
-                            # --- ЛОГИКА ЗАПУСКА ДРОНА ---
                             current_integrity = ui_target_wreck.modules.get(repair_target_module, 0)
                             needed_percent = 100 - current_integrity
                             needed_amount = needed_percent * REPAIR_COST_PER_PERCENT
+                            available_metal = player.inventory.get(REPAIR_RESOURCE_TYPE, 0)
 
-                            if player.inventory.get(REPAIR_RESOURCE_TYPE, 0) >= needed_amount:
-                                # Проверяем, не чинится ли уже этот модуль
-                                repair_key = (id(ui_target_wreck), repair_target_module)
-                                if repair_key in active_repairs:
-                                    print(f"[WARNING] Модуль '{repair_target_module}' уже чинится другим дроном!")
-                                else:
-                                    # Списываем ресурсы
-                                    player.remove_resource(REPAIR_RESOURCE_TYPE, int(needed_amount))
+                            if available_metal <= 0:
+                                print(f"[ERROR] Нет металла для ремонта '{repair_target_module}'.")
+                                return  # Прерываем обработку клика
 
-                                    # Создаем и запускаем дрон
-                                    new_drone = RepairDrone(
-                                        player.x,
-                                        player.y,
-                                        ui_target_wreck,
-                                        repair_target_module,
-                                        drone_sprite,
-                                        return_target=player
-                                    )
-                                    repair_drones.append(new_drone)
-                                    active_repairs[repair_key] = True
-                                    print(f"[SUCCESS] Дрон-ремонтник запущен для '{repair_target_module}'!")
-
-                                    # Закрываем меню
-                                    repair_menu_active = False
-                                    repair_target_module = None
-                                    repair_needed_amount = 0
+                            # Сколько реально можем починить
+                            if available_metal >= needed_amount:
+                                actual_repair_percent = needed_percent
+                                actual_cost = int(needed_amount)
                             else:
-                                print(f"[ERROR] Недостаточно ресурсов для ремонта '{repair_target_module}'.")
+                                actual_repair_percent = int(available_metal / REPAIR_COST_PER_PERCENT)
+                                actual_cost = int(actual_repair_percent * REPAIR_COST_PER_PERCENT)
+
+                            repair_key = (id(ui_target_wreck), repair_target_module)
+
+                            # Проверяем, есть ли уже активные дроны-ремонтники
+                            has_active_drone = any(d.state != "DONE" and d.state != "RETURNING" for d in repair_drones)
+
+                            if has_active_drone:
+                                print(f"[WARNING] Уже запущен дрон-ремонтник! Дождитесь его возвращения.")
+                            elif repair_key in active_repairs:
+                                print(f"[WARNING] Модуль '{repair_target_module}' уже чинится другим дроном!")
+                            else:
+                                # --- ВОТ ЗДЕСЬ мы реально запускаем ремонт ---
+                                player.remove_resource(REPAIR_RESOURCE_TYPE, actual_cost)
+
+                                new_drone = RepairDrone(
+                                    player.x,
+                                    player.y,
+                                    ui_target_wreck,
+                                    repair_target_module,
+                                    drone_sprite,
+                                    return_target=player,
+                                    repair_amount=actual_repair_percent
+                                )
+                                repair_drones.append(new_drone)
+                                active_repairs[repair_key] = True
+
+                                if actual_repair_percent < needed_percent:
+                                    print(
+                                        f"[SUCCESS] Частичный ремонт '{repair_target_module}': +{actual_repair_percent}% за {actual_cost} металла")
+                                else:
+                                    print(
+                                        f"[SUCCESS] Полный ремонт '{repair_target_module}': +{actual_repair_percent}% за {actual_cost} металла")
+
+                                repair_menu_active = False
+                                repair_target_module = None
+                                repair_needed_amount = 0
+
+
                         else:
                             # Клик мимо кнопки — закрываем подменю
                             repair_menu_active = False
@@ -890,18 +916,30 @@ def main():
                 explosions.remove(exp)
 
         # --- ОБНОВЛЕНИЕ ДРОНОВ ---
+
+        # 1. Обычные дроны (сканеры и т.д.)
         for drone in drones[:]:
             drone.update()
             if drone.done:
                 drones.remove(drone)
 
+        # 2. Ремонтные дроны (с очисткой словаря active_repairs)
         for rd in repair_drones[:]:
             rd.update()
+
+            # ГЛАВНОЕ: Проверяем флаг завершения работы дрона
             if rd.done:
+                # Удаляем дрон из списка
                 repair_drones.remove(rd)
-                # Очищаем блокировку ремонта
-                key = (id(rd.target_ship), rd.module_name)
-                active_repairs.pop(key, None)
+
+                # Формируем ключ, который использовали при создании дрона
+                repair_key = (id(rd.target_ship), rd.module_name)
+
+                # Удаляем запись из словаря активных ремонтов
+                # .pop(key, None) безопасно удалит ключ, если он есть, и не вызовет ошибку, если его нет
+                active_repairs.pop(repair_key, None)
+
+                print(f"[DEBUG] Ремонт дроном завершен. Ключ удален: {repair_key}")
 
         # Добавляем фрагменты в сектор
         if new_fragments and current_sector:

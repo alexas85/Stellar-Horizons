@@ -172,7 +172,8 @@ class RepairDrone:
     """
     BASE_REPAIR_TIME = 3600 * 5  # 30 секунд при 60 FPS на 100% ремонта
 
-    def __init__(self, start_x, start_y, target_ship, module_name, drone_sprite, return_target=None):
+    def __init__(self, start_x, start_y, target_ship, module_name, drone_sprite, return_target=None, repair_amount=None):
+
         self.x = start_x
         self.y = start_y
         self.target_ship = target_ship
@@ -205,7 +206,12 @@ class RepairDrone:
 
         # Параметры ремонта
         current_integrity = target_ship.modules.get(module_name, 0)
-        needed_percent = 100 - current_integrity
+        if repair_amount is not None:
+            needed_percent = repair_amount
+        else:
+            needed_percent = 100 - current_integrity
+        self.repair_amount = needed_percent
+        self.target_integrity = min(100, current_integrity + needed_percent)
         self.total_duration = max(30, int((needed_percent / 100.0) * self.BASE_REPAIR_TIME))
 
         # Эффект луча
@@ -277,6 +283,16 @@ class RepairDrone:
             self.elapsed_time += 1
             self.substate_timer += 1
 
+            # --- ГЛАВНАЯ ПРОВЕРКА: ЗАВЕРШЕНИЕ РЕМОНТА ---
+            # Делаем её самой первой, чтобы дрон сразу улетел, как только время вышло
+            if self.elapsed_time >= self.total_duration:
+                self.target_ship.modules[self.module_name] = self.target_integrity
+                print(
+                    f"[SUCCESS] Модуль '{self.module_name}' отремонтирован до {int(self.target_integrity)}%! Дрон возвращается.")
+                self.state = "RETURNING"
+                self.state_timer = 0
+                return  # Прерываем выполнение update(), чтобы не делать лишних расчетов в этом кадре
+
             # --- ФАЗА: Полёт к новой точке сварки ---
             if self.repair_substate == "moving_to_weld":
                 dx = self.current_weld_pos[0] - self.x
@@ -292,26 +308,25 @@ class RepairDrone:
 
             # --- ФАЗА: Сварка в текущей точке ---
             elif self.repair_substate == "welding":
-                # Лёгкая вибрация вокруг выбранной точки
-                self.x = self.current_weld_pos[0] + random.uniform(-2, 2)
-                self.y = self.current_weld_pos[1] + random.uniform(-2, 2)
+                # ГАРАНТИРОВАННОЕ ИЗВЛЕЧЕНИЕ КООРДИНАТ ИЗ КОРТЕЖА
+                # self.current_weld_pos гарантированно имеет вид (x, y)
+                weld_x = self.current_weld_pos[0]
+                weld_y = self.current_weld_pos[1]
 
-                repair_per_frame = 100.0 / self.total_duration
+                # Добавляем случайное смещение к каждой координате отдельно
+                self.x = weld_x + random.uniform(-2, 2)
+                self.y = weld_y + random.uniform(-2, 2)
+
+                # Расчет ремонта
+                repair_per_frame = self.repair_amount / self.total_duration
                 current_integrity = self.target_ship.modules.get(self.module_name, 0)
-                new_integrity = min(100, current_integrity + repair_per_frame)
+                new_integrity = min(self.target_integrity, current_integrity + repair_per_frame)
                 self.target_ship.modules[self.module_name] = new_integrity
 
                 if self.substate_timer >= self.weld_duration:
                     self.repair_substate = "moving_to_weld"
                     self.substate_timer = 0
                     self._pick_new_weld_point()
-
-            # --- Проверка завершения ремонта ---
-            if self.elapsed_time >= self.total_duration:
-                self.target_ship.modules[self.module_name] = 100
-                print(f"[SUCCESS] Модуль '{self.module_name}' отремонтирован! Дрон возвращается.")
-                self.state = "RETURNING"
-                self.state_timer = 0
 
         # 3. RETURNING: летим к кораблю игрока
         elif self.state == "RETURNING":
