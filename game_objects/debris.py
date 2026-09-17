@@ -4,7 +4,7 @@ import random
 
 
 class ShipDebris:
-    """Осколок разрушенного корабля — летит, вращается, тормозит и затухает."""
+    """Осколок разрушенного корабля — летит, вращается, тормозит. Можно разобрать на ресурсы."""
 
     def __init__(self, x, y, sprite, speed_min=2.0, speed_max=6.0):
         self.x = x
@@ -27,14 +27,22 @@ class ShipDebris:
         self.friction = 0.97
         self.angular_friction = 0.96
 
-        # Жизненный цикл
-        self.lifetime = 0
-        self.max_lifetime = 360       # 6 секунд при 60 FPS
-        self.fade_start = 240         # затухание с 4-й секунды
-        self.is_expired = False
-        self.alpha = 255
+        # Интерфейс для сбора (совместим с asteroid)
+        self.type_key = "destroyer_debris"
+        self.size_px = 128
+        self.is_collecting = False
+        self.collection_start_time = 0.0
+        self.marked_for_removal = False
 
         self._update_rect()
+
+    @property
+    def velocity_x(self):
+        return self.velocity.x
+
+    @property
+    def velocity_y(self):
+        return self.velocity.y
 
     def _update_rect(self):
         w = self.sprite.get_width()
@@ -43,31 +51,26 @@ class ShipDebris:
         self.rect.center = (int(self.x), int(self.y))
 
     def update(self):
-        if self.is_expired:
-            return
+        # --- ЛОГИКА СБОРА (как у астероида) ---
+        if self.is_collecting:
+            current_time = pygame.time.get_ticks()
+            elapsed = current_time - self.collection_start_time
+            if elapsed >= 3000:
+                self.marked_for_removal = True
+                self.is_collecting = False
+                self.collection_start_time = 0.0
+            return  # во время сбора осколок замерает
 
-        self.lifetime += 1
-
+        # Обычное движение
         self.velocity *= self.friction
         self.angular_velocity *= self.angular_friction
         self.x += self.velocity.x
         self.y += self.velocity.y
         self.angle += self.angular_velocity
 
-        # Плавное затухание
-        if self.lifetime >= self.fade_start:
-            progress = (self.lifetime - self.fade_start) / max(1, self.max_lifetime - self.fade_start)
-            self.alpha = max(0, int(255 * (1 - progress)))
-
-        if self.lifetime >= self.max_lifetime or self.alpha <= 0:
-            self.is_expired = True
-
         self._update_rect()
 
     def draw(self, surface, camera):
-        if self.is_expired:
-            return
-
         if isinstance(camera, tuple):
             cam_x, cam_y = camera
         else:
@@ -77,12 +80,5 @@ class ShipDebris:
         draw_y = self.y - cam_y
 
         rotated = pygame.transform.rotate(self.sprite, -self.angle)
-
-        if self.alpha < 255:
-            fade_surf = pygame.Surface(rotated.get_size(), pygame.SRCALPHA)
-            fade_surf.fill((255, 255, 255, self.alpha))
-            rotated = rotated.copy()
-            rotated.blit(fade_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-
         rect = rotated.get_rect(center=(int(draw_x), int(draw_y)))
         surface.blit(rotated, rect)

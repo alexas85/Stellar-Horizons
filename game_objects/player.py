@@ -324,8 +324,13 @@ class PlayerShip:
         if self.is_collecting or self.on_planet_surface or self.is_landing or self.is_docking or self.is_docked:
             return False
 
-        if not (asteroid.type_key.startswith("ast_mod04") or asteroid.type_key.startswith(
-                "ast_mod01")) or asteroid.size_px != 16:
+        # Проверка типа: осколок или мелкий астероид
+        is_debris = hasattr(asteroid, 'type_key') and asteroid.type_key == "destroyer_debris"
+        is_small_asteroid = (hasattr(asteroid, 'type_key') and
+                             (asteroid.type_key.startswith("ast_mod04") or asteroid.type_key.startswith("ast_mod01"))
+                             and asteroid.size_px == 16)
+
+        if not is_debris and not is_small_asteroid:
             return False
 
         dist_sq = (asteroid.x - self.x) ** 2 + (asteroid.y - self.y) ** 2
@@ -453,8 +458,16 @@ class PlayerShip:
             current_time = pygame.time.get_ticks()
 
             if asteroid.marked_for_removal:
-                self.add_resource("metal", random.randint(5, 16))
-                self.add_resource("mineral", random.randint(0, 3))
+                if hasattr(asteroid, 'type_key') and asteroid.type_key == "destroyer_debris":
+                    # Осколок истребителя — больше и лучше ресурсы
+                    self.add_resource("metal", random.randint(10, 15))
+                    self.add_resource("precious", random.randint(5, 8))
+                    self.add_resource("uranium", random.randint(0, 1))
+                    self.add_resource("crystal", random.randint(0, 3))
+                else:
+                    # Обычный астероид
+                    self.add_resource("metal", random.randint(5, 16))
+                    self.add_resource("mineral", random.randint(0, 3))
                 self.stop_collection()
                 return None
 

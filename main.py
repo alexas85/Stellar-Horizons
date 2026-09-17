@@ -466,6 +466,111 @@ def main():
         draw_hologram_button(surface, "РЕМОНТ МОДУЛЕЙ", rep_x, rep_y, rep_w, rep_h, time_offset)
         return repair_rect
 
+    def draw_minimap(screen, player, current_sector, debris_list, camera, time_offset):
+        """Рисует мини-карту текущей комнаты в правом верхнем углу."""
+        if player.on_planet_surface or current_sector is None:
+            return
+
+        mm_size = 220
+        mm_margin = 10
+        mm_x = CAMERA_WIDTH - mm_size - mm_margin
+        mm_y = mm_margin
+        scale = mm_size / ROOM_WIDTH
+
+        # Фон
+        mm_surf = pygame.Surface((mm_size, mm_size), pygame.SRCALPHA)
+        mm_surf.fill((8, 12, 22, 200))
+
+        # Сетка
+        for i in range(1, 4):
+            pos = i * mm_size // 4
+            pygame.draw.line(mm_surf, (25, 35, 50, 120), (pos, 0), (pos, mm_size))
+            pygame.draw.line(mm_surf, (25, 35, 50, 120), (0, pos), (mm_size, pos))
+
+        # Координаты текущей комнаты
+        rx = int(player.x // ROOM_WIDTH)
+        ry = int(player.y // ROOM_HEIGHT)
+        room_ox = rx * ROOM_WIDTH
+        room_oy = ry * ROOM_HEIGHT
+
+        def to_mm(wx, wy):
+            return int((wx - room_ox) * scale), int((wy - room_oy) * scale)
+
+        # Астероиды
+        if current_sector.asteroids:
+            for ast in current_sector.asteroids:
+                if getattr(ast, 'marked_for_removal', False):
+                    continue
+                mx, my = to_mm(ast.x, ast.y)
+                if 0 <= mx < mm_size and 0 <= my < mm_size:
+                    if ast.size_px >= 64:
+                        pygame.draw.circle(mm_surf, (90, 90, 90), (mx, my), 2)
+                    elif ast.size_px >= 32:
+                        mm_surf.set_at((mx, my), (70, 70, 70))
+                    else:
+                        mm_surf.set_at((mx, my), (50, 50, 50))
+
+        # Объекты сектора
+        for obj in current_sector.objects:
+            mx, my = to_mm(obj.x, obj.y)
+            if not (0 <= mx < mm_size and 0 <= my < mm_size):
+                continue
+
+            if isinstance(obj, (ScoutShip, DestroyerShip)):
+                color = (0, 255, 0) if isinstance(obj, ScoutShip) else (255, 100, 0)
+                if getattr(obj, 'is_destroyed', False):
+                    color = (70, 70, 70)
+                pygame.draw.circle(mm_surf, color, (mx, my), 3)
+            elif isinstance(obj, Station):
+                pygame.draw.rect(mm_surf, (255, 200, 0), (mx - 3, my - 3, 6, 6))
+            elif isinstance(obj, StaticPlanet):
+                pygame.draw.circle(mm_surf, (0, 200, 100), (mx, my), 5)
+            elif isinstance(obj, StaticShip):
+                pygame.draw.circle(mm_surf, (200, 150, 50), (mx, my), 3)
+            elif isinstance(obj, SpaceAmoeba):
+                pygame.draw.circle(mm_surf, (150, 150, 160), (mx, my), 4)
+
+        # Осколки
+        for debris in debris_list:
+            if getattr(debris, 'marked_for_removal', False):
+                continue
+            mx, my = to_mm(debris.x, debris.y)
+            if 0 <= mx < mm_size and 0 <= my < mm_size:
+                pygame.draw.circle(mm_surf, (120, 100, 80), (mx, my), 2)
+
+        # Прямоугольник обзора камеры
+        cam_x = (camera.x - room_ox) * scale
+        cam_y = (camera.y - room_oy) * scale
+        cam_w = CAMERA_WIDTH * scale
+        cam_h = CAMERA_HEIGHT * scale
+        pygame.draw.rect(mm_surf, (255, 255, 255, 80),
+                         (int(cam_x), int(cam_y), int(cam_w), int(cam_h)), 1)
+
+        # Игрок — треугольник по направлению носа
+        px, py = to_mm(player.x, player.y)
+        rad = math.radians(player.angle)
+        tip = (px + math.cos(rad) * 7, py + math.sin(rad) * 7)
+        left = (px + math.cos(rad + 2.5) * 5, py + math.sin(rad + 2.5) * 5)
+        right = (px + math.cos(rad - 2.5) * 5, py + math.sin(rad - 2.5) * 5)
+        pygame.draw.polygon(mm_surf, HUD_NEON[:3], [tip, left, right])
+
+        # Эффект помех (как в остальных UI)
+        for i in range(0, mm_size, 6):
+            shift = math.sin(time_offset * 2 + i * 0.5) * 1
+            line_y = i + int(shift)
+            if 0 <= line_y < mm_size:
+                pygame.draw.line(mm_surf, (*HUD_GLOW, 15), (0, line_y), (mm_size, line_y))
+
+        # Рамка
+        pygame.draw.rect(mm_surf, (*HUD_NEON[:3], 150), (0, 0, mm_size, mm_size), 1)
+
+        screen.blit(mm_surf, (mm_x, mm_y))
+
+        # Подпись комнаты
+        room_label = f"[{rx}, {ry}]"
+        lbl = font_debug.render(room_label, True, HUD_NEON[:3])
+        screen.blit(lbl, (mm_x + 4, mm_y + mm_size + 2))
+
 
     while running:
 
@@ -749,6 +854,23 @@ def main():
                                             closest_dist_sq = d_sq
                                             closest_asteroid = ast
 
+                        # Поиск ближайшего осколка (если астероид не найден)
+                        if not closest_asteroid and debris_list:
+                            closest_debris = None
+                            closest_debris_dist_sq = float('inf')
+                            for debris in debris_list:
+                                if debris.marked_for_removal:
+                                    continue
+                                dx = debris.x - player.x
+                                dy = debris.y - player.y
+                                d_sq = dx * dx + dy * dy
+                                if d_sq <= (150 ** 2) and d_sq < closest_debris_dist_sq:
+                                    closest_debris_dist_sq = d_sq
+                                    closest_debris = debris
+                            if closest_debris:
+                                closest_asteroid = closest_debris
+
+
                         if closest_asteroid:
                             started = player.try_start_collection(closest_asteroid)
                             if started:
@@ -953,9 +1075,8 @@ def main():
         # --- ОБНОВЛЕНИЕ ОСКОЛКОВ ---
         for debris in debris_list[:]:
             debris.update()
-            if debris.is_expired:
+            if debris.marked_for_removal:
                 debris_list.remove(debris)
-
 
         # --- ОБНОВЛЕНИЕ ДРОНОВ ---
 
@@ -1071,6 +1192,17 @@ def main():
                             sx = int(ast.x - camera.x)
                             sy = int(ast.y - camera.y)
                             pygame.draw.circle(screen, (128, 128, 128), (sx, sy), 32, 1)
+
+            # --- СЕРАЯ ОКРУЖНОСТЬ ВОКРУГ ОСКОЛКОВ ---
+            for debris in debris_list:
+                if debris.marked_for_removal:
+                    continue
+                dist_sq = (debris.x - player.x) ** 2 + (debris.y - player.y) ** 2
+                if dist_sq <= 150 ** 2:
+                    sx = int(debris.x - camera.x)
+                    sy = int(debris.y - camera.y)
+                    pygame.draw.circle(screen, (128, 128, 128), (sx, sy), 40, 1)
+
 
             for bullet in player.bullets:
                 bullet.draw(screen, camera)
@@ -1291,17 +1423,17 @@ def main():
         text_surf = font_debug.render(info_text, True, (255, 255, 255))
         screen.blit(text_surf, (10, 10))
 
-        # Визуализация границ комнат (для отладки)
-        if not player.on_planet_surface:
-            for key, sector in generator.sectors.items():
-                sx, sy = key
-                rect = pygame.Rect(sx * ROOM_WIDTH, sy * ROOM_HEIGHT, ROOM_WIDTH, ROOM_HEIGHT)
-                draw_rect = rect.copy()
-                draw_rect.x -= camera.x
-                draw_rect.y -= camera.y
-                if draw_rect.colliderect(screen.get_rect()):
-                    color = (0, 255, 0) if sector.is_generated else (255, 0, 0)
-                    pygame.draw.rect(screen, color, draw_rect, 2)
+        # # Визуализация границ комнат (для отладки)
+        # if not player.on_planet_surface:
+        #     for key, sector in generator.sectors.items():
+        #         sx, sy = key
+        #         rect = pygame.Rect(sx * ROOM_WIDTH, sy * ROOM_HEIGHT, ROOM_WIDTH, ROOM_HEIGHT)
+        #         draw_rect = rect.copy()
+        #         draw_rect.x -= camera.x
+        #         draw_rect.y -= camera.y
+        #         if draw_rect.colliderect(screen.get_rect()):
+        #             color = (0, 255, 0) if sector.is_generated else (255, 0, 0)
+        #             pygame.draw.rect(screen, color, draw_rect, 2)
 
         # --- HUD (ресурсы) ---
         hud_start_x = 10
@@ -1344,6 +1476,9 @@ def main():
             label_surf = font_bar.render(f"{label} {int(value)}/{max_val}", True, text_color)
             label_rect = label_surf.get_rect(midleft=(bar_x + 4, bar_y + bar_height // 2))
             screen.blit(label_surf, label_rect)
+        # --- МИНИ-КАРТА ---
+        h_time = pygame.time.get_ticks() / 1000.0
+        draw_minimap(screen, player, current_sector, debris_list, camera, h_time)
 
         pygame.display.flip()
         clock.tick(60)
