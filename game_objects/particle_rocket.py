@@ -1,8 +1,9 @@
-# game_objects/rocket.py
+# game_objects/particle_rocket.py
 import pygame
 import math
+import random
 
-class Rocket:
+class ParticleRocket:
     def __init__(self, x, y, angle, target=None, max_distance=2000):
         self.x = x
         self.y = y
@@ -10,20 +11,18 @@ class Rocket:
         self.target = target
         self.max_distance = max_distance
         self.distance_traveled = 0
-        self.speed = 8.0
-        self.turn_speed = 4.0  # градусов за кадр
+        self.speed = 9.0
+        self.turn_speed = 5.0
+
+        self.particles = []
+        self.emit_rate = 3          # частиц за кадр
+        self.max_particles = 40    # лимит частиц
+        self.particle_life_min = 20
+        self.particle_life_max = 35
+
         self.sprites = None
         self.animation_index = 0
         self.animation_timer = 0
-
-        # --- Параметры шлейфа из спрайтов ---
-        self.trail_max_length = 10          # сколько сегментов хранить
-        self.trail_fade_step = 15           # на сколько уменьшать прозрачность за кадр
-        self.trail = []                    # [(x, y, alpha), ...]
-
-        # Спрайт для сегмента шлейфа (загрузим позже или передадим отдельно)
-        self.trail_sprite = None
-
         self.rect = pygame.Rect(0, 0, 16, 16)
         self.rect.center = (int(self.x), int(self.y))
 
@@ -35,25 +34,15 @@ class Rocket:
             self.rect = pygame.Rect(0, 0, w, h)
             self.rect.center = (int(self.x), int(self.y))
 
-    def set_trail_sprite(self, sprite):
-        """Передаем спрайт для сегмента хвоста (trail_roket01.png)"""
-        # Сразу уменьшим его до удобного размера, например 10x10
-        size = 10
-        self.trail_sprite = pygame.transform.smoothscale(sprite, (size, size))
-
     def update(self):
-        # Самонаведение
+        # Самонаведение (аналогично обычной ракете)
         if self.target is not None and not self.target.is_destroyed:
             dx = self.target.x - self.x
             dy = self.target.y - self.y
             target_angle = math.degrees(math.atan2(dy, dx))
-
             diff = target_angle - self.angle
-            while diff > 180:
-                diff -= 360
-            while diff < -180:
-                diff += 360
-
+            while diff > 180: diff -= 360
+            while diff < -180: diff += 360
             if abs(diff) <= self.turn_speed:
                 self.angle = target_angle
             elif diff > 0:
@@ -67,7 +56,7 @@ class Rocket:
         self.y += math.sin(rad) * self.speed
         self.distance_traveled += self.speed
 
-        # Обновляем rect
+        # Rect
         if self.sprites and len(self.sprites) > 0:
             w = self.sprites[0].get_width()
             h = self.sprites[0].get_height()
@@ -81,18 +70,36 @@ class Rocket:
                 self.animation_index = (self.animation_index + 1) % len(self.sprites)
                 self.animation_timer = 0
 
-        # --- Логика шлейфа ---
-        # Добавляем текущую позицию
-        alpha = 255
-        self.trail.append((self.x, self.y, alpha))
-        if len(self.trail) > self.trail_max_length:
-            self.trail.pop(0)
+        # Эмиссия частиц
+        if len(self.particles) < self.max_particles:
+            angle_offset = random.uniform(-20, 20)
+            p_angle = self.angle + math.radians(angle_offset)
+            speed = random.uniform(1.5, 3.5)
 
-        # Уменьшаем прозрачность старых сегментов
-        for i in range(len(self.trail)):
-            x, y, a = self.trail[i]
-            new_a = max(0, a - self.trail_fade_step)
-            self.trail[i] = (x, y, new_a)
+            px = self.x + math.cos(p_angle) * 12
+            py = self.y + math.sin(p_angle) * 12
+
+            life = random.randint(self.particle_life_min, self.particle_life_max)
+            size = random.randint(4, 7)
+            # Цвет пламени: оранжевый -> жёлтый
+            color = (255, random.randint(100, 180), random.randint(0, 60))
+
+            self.particles.append({
+                "x": px, "y": py,
+                "vx": math.cos(p_angle) * speed,
+                "vy": math.sin(p_angle) * speed,
+                "life": life,
+                "size": size,
+                "color": color
+            })
+
+        # Обновление и удаление частиц
+        for p in self.particles[:]:
+            p["x"] += p["vx"]
+            p["y"] += p["vy"]
+            p["life"] -= 1
+            if p["life"] <= 0:
+                self.particles.remove(p)
 
     def is_active(self):
         return self.distance_traveled < self.max_distance
@@ -100,7 +107,7 @@ class Rocket:
     def check_hit(self):
         if self.target is not None and not self.target.is_destroyed:
             dist = math.hypot(self.target.x - self.x, self.target.y - self.y)
-            if dist < 30:
+            if dist < 35:
                 return True
             if self.rect.colliderect(self.target.rect):
                 return True
@@ -111,22 +118,21 @@ class Rocket:
         draw_x = self.x - cam_x
         draw_y = self.y - cam_y
 
-        # Рисуем хвост (сначала, чтобы ракета была поверх)
-        if self.trail_sprite:
-            for x, y, alpha in self.trail:
-                sx = int(x - cam_x)
-                sy = int(y - cam_y)
-                sprite = self.trail_sprite.copy()
-                sprite.set_alpha(alpha)
-                # Центрируем сегмент шлейфа на точке, как ракету
-                trail_rect = sprite.get_rect(center=(sx, sy))
-                surface.blit(sprite, trail_rect)
+        # Рисуем частицы (дым/пламя)
+        for p in self.particles:
+            sx = int(p["x"] - cam_x)
+            sy = int(p["y"] - cam_y)
+            alpha = int(255 * (p["life"] / self.particle_life_max))
+            surf = pygame.Surface((p["size"], p["size"]), pygame.SRCALPHA)
+            c = p["color"]
+            surf.fill((c[0], c[1], c[2], alpha))
+            surface.blit(surf, (sx, sy))
 
-        # Рисуем саму ракету
+        # Рисуем ракету поверх дыма
         if self.sprites and len(self.sprites) > 0:
             sprite = self.sprites[self.animation_index]
             rotated = pygame.transform.rotate(sprite, -self.angle)
             rect = rotated.get_rect(center=(int(draw_x), int(draw_y)))
             surface.blit(rotated, rect)
         else:
-            pygame.draw.circle(surface, (255, 100, 0), (int(draw_x), int(draw_y)), 4)
+            pygame.draw.circle(surface, (255, 150, 50), (int(draw_x), int(draw_y)), 5)

@@ -106,6 +106,13 @@ def main():
         bullet_sprite = pygame.Surface((16, 16))
         bullet_sprite.fill((255, 0, 0))
 
+    trail_path = "assets/projectiles/trail_roket01.png"
+    trail_sprite = None
+    try:
+        trail_sprite = pygame.image.load(trail_path).convert_alpha()
+        print(f"[SUCCESS] Trail sprite loaded: {trail_path}")
+    except FileNotFoundError:
+        print(f"[WARNING] Trail sprite not found: {trail_path}. Will use circles instead.")
 
     resource_surfaces = {}
     for name, path in RESOURCE_ICONS.items():
@@ -987,6 +994,11 @@ def main():
             # --- РАКЕТЫ ---
             for rocket in rockets:
                 rocket.draw(screen, camera)
+
+            # Когда создаешь ракеты (или в цикле спавна):
+            for r in rockets:
+                if trail_sprite:
+                    r.set_trail_sprite(trail_sprite)
 
             # --- ВЗРЫВЫ ---
             for exp in explosions:
