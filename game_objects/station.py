@@ -1,3 +1,4 @@
+# game_objects/station.py
 import pygame
 
 

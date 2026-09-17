@@ -82,6 +82,7 @@ class PlayerShip:
         self.max_fuel = 100
         # --- ВНУТРЕННИЕ ТАЙМЕРЫ ---
         self._energy_regen_accum = 0.0
+        self._docking_fuel_accum = 0.0
         # --- ЛИМИТ РЕСУРСОВ ---
         self.max_resource = 50
 
@@ -177,8 +178,8 @@ class PlayerShip:
         self.is_docking = False
         self.docked_station = None
         self.angular_velocity = 0.0
-        # Небольшой толчок от станции
         self.velocity = pygame.math.Vector2(0, -1.5)
+        self._docking_fuel_accum = 0.0
         self._update_rect()
 
     def _get_dock_position(self):
@@ -236,6 +237,14 @@ class PlayerShip:
         self.y = target_y
         self.angle = target_angle
         self._update_rect()
+
+        # --- ЗАПРАВКА ТОПЛИВОМ (~3 ед/сек) ---
+        if self.fuel < self.max_fuel:
+            self._docking_fuel_accum += 3.0 / 60.0
+            if self._docking_fuel_accum >= 1.0:
+                refuel = int(self._docking_fuel_accum)
+                self.fuel = min(self.max_fuel, self.fuel + refuel)
+                self._docking_fuel_accum -= refuel
 
     # ================================================================
 
@@ -356,7 +365,11 @@ class PlayerShip:
                 regen = int(self._energy_regen_accum)
                 self.energy = min(self.max_energy, self.energy + regen)
                 self._energy_regen_accum -= regen
-
+        # Фоновый расход топлива: 0.5 единицы в секунду
+        if self.fuel > 0 and not self.is_docked:
+            self.fuel -= 0.5 / 60.0
+            if self.fuel < 0:
+                self.fuel = 0
 
                 # --- УНИЧТОЖЕН: корабль не управляется, только дрейфует ---
         if self.is_destroyed:
