@@ -572,6 +572,9 @@ def main():
         room_label = f"[{rx}, {ry}]"
         lbl = font_debug.render(room_label, True, HUD_NEON[:3])
         screen.blit(lbl, (mm_x + 4, mm_y + mm_size + 2))
+    game_over_state = 0          # 0 = игра, 1 = ждём 3 секунды, 2 = экран «игра окончена»
+    game_over_start_time = 0    # время начала отсчёта
+    screen_dim_alpha = 0         # прозрачность затемнения
 
 
     while running:
@@ -584,6 +587,9 @@ def main():
                 if event.key == pygame.K_F3:
                     show_scout_indicator = not show_scout_indicator
                     print(f"[DEBUG] Индикатор разведчика: {'ВКЛ' if show_scout_indicator else 'ВЫКЛ'}")
+                if event.key == pygame.K_ESCAPE and game_over_state == 2:
+                    running = False
+
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 3:  # Правая кнопка — запуск ракеты
                     fire_rocket = True
@@ -977,6 +983,21 @@ def main():
 
         # ВАЖНО: Вызываем update игрока, передавая список объектов.
         hit_asteroid = player.update(world_objects=check_objects)
+        # --- ЛОГИКА GAME OVER ---
+        if player.is_destroyed and game_over_state == 0:
+            game_over_state = 1
+            game_over_start_time = pygame.time.get_ticks()
+
+        if game_over_state == 1:
+            elapsed = (pygame.time.get_ticks() - game_over_start_time) / 1000.0
+            screen_dim_alpha = min(160, int(160 * (elapsed / 3.0)))
+            if elapsed >= 3.0:
+                game_over_state = 2
+                screen_dim_alpha = 160
+
+        if game_over_state == 2:
+            screen_dim_alpha = 160
+
 
         if hit_asteroid:
             # --- ЕДИНАЯ ФИЗИКА СТОЛКНОВЕНИЙ ДЛЯ ВСЕХ АСТЕРОИДОВ ---
@@ -1486,7 +1507,79 @@ def main():
         h_time = pygame.time.get_ticks() / 1000.0
         draw_minimap(screen, player, current_sector, debris_list, camera, h_time)
 
+        # --- ЭКРАН GAME OVER ---
+        if game_over_state > 0:
+            # Затемнение всего экрана
+            if screen_dim_alpha > 0:
+                dim_surf = pygame.Surface((CAMERA_WIDTH, CAMERA_HEIGHT), pygame.SRCALPHA)
+                dim_surf.fill((0, 0, 0, screen_dim_alpha))
+                screen.blit(dim_surf, (0, 0))
+
+            # Текст и рамка — только когда экран полностью затемнён
+            if game_over_state == 2:
+                pulse = (math.sin(h_time * 2) + 1) / 2
+                text_alpha = int(180 + pulse * 75)
+
+                font_go = pygame.font.SysFont("consolas", 52, bold=True)
+                sub_font = pygame.font.SysFont("consolas", 18, bold=True)
+
+                # Рендерим тексты, чтобы измерить размер
+                text_surf = font_go.render("ИГРА ОКОНЧЕНА!", True, HUD_NEON[:3])
+                sub_surf = sub_font.render("[ нажмите ESC для выхода ]", True, HUD_TEXT[:3])
+
+                text_w = text_surf.get_width()
+                text_h = text_surf.get_height()
+                sub_h = sub_surf.get_height()
+
+                # Рамка вокруг текста + подсказки
+                frame_padding = 30
+                frame_w = max(text_w, sub_surf.get_width()) + frame_padding * 2
+                frame_h = text_h + sub_h + frame_padding * 2 + 20
+                frame_x = (CAMERA_WIDTH - frame_w) // 2
+                frame_y = (CAMERA_HEIGHT - frame_h) // 2
+
+                # Полупрозрачный фон рамки
+                frame_surf = pygame.Surface((frame_w, frame_h), pygame.SRCALPHA)
+                frame_surf.fill((*HUD_NEON[:3], 40))
+
+                # Помехи — только внутри рамки
+                for i in range(0, frame_h, 4):
+                    shift = math.sin(h_time * 3 + i * 0.3) * 2
+                    line_y = i + int(shift)
+                    if 0 <= line_y < frame_h:
+                        pygame.draw.line(frame_surf, (*HUD_GLOW, 18),
+                                         (0, line_y), (frame_w, line_y))
+
+                # Неоновая рамка
+                pygame.draw.rect(frame_surf, (*HUD_NEON[:3], 180),
+                                 (0, 0, frame_w, frame_h), HUD_BORDER_WIDTH)
+
+                screen.blit(frame_surf, (frame_x, frame_y))
+
+                # Многослойное свечение текста
+                for layer in range(5, 0, -1):
+                    glow_surf = font_go.render("ИГРА ОКОНЧЕНА!", True, HUD_GLOW[:3])
+                    glow_surf.set_alpha(15 + layer * 8)
+                    glow_rect = glow_surf.get_rect(
+                        center=(CAMERA_WIDTH // 2, frame_y + frame_padding + text_h // 2))
+                    screen.blit(glow_surf, glow_rect)
+
+                # Чёткий текст
+                text_surf.set_alpha(text_alpha)
+                text_rect = text_surf.get_rect(
+                    center=(CAMERA_WIDTH // 2, frame_y + frame_padding + text_h // 2))
+                screen.blit(text_surf, text_rect)
+
+                # Подсказка
+                sub_pulse = (math.sin(h_time * 1.5) + 1) / 2
+                sub_alpha = int(80 + sub_pulse * 60)
+                sub_surf.set_alpha(sub_alpha)
+                sub_rect = sub_surf.get_rect(
+                    center=(CAMERA_WIDTH // 2, frame_y + frame_padding + text_h + 20 + sub_h // 2))
+                screen.blit(sub_surf, sub_rect)
+
         pygame.display.flip()
+
         clock.tick(60)
 
     pygame.quit()
