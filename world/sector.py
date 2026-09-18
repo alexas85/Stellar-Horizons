@@ -83,6 +83,76 @@ class Sector:
             self.is_generated = True
             print(f"[DEBUG] Комната (1,1): сгенерировано {len(self.asteroids)} астероидов mod04")
             return
+        # --- СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ КОМНАТЫ (0, 1): широкий пучок ---
+        if self.x == 0 and self.y == 1:
+            room_center_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
+            room_center_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
+
+            cluster_radius = 900
+            cluster_count = 80
+
+            for _ in range(cluster_count):
+                angle = random.uniform(0, 2 * math.pi)
+                dist = random.uniform(0, cluster_radius)
+                ax = room_center_x + math.cos(angle) * dist
+                ay = room_center_y + math.sin(angle) * dist
+
+                collision = False
+                for existing in self.asteroids:
+                    min_dist = max(existing.size_px // 2, 32)
+                    if math.hypot(ax - existing.x, ay - existing.y) < min_dist * 2:
+                        collision = True
+                        break
+
+                if not collision:
+                    sprite_key, (sprite, size_px) = random.choice(items)
+                    rot_speed = random.uniform(-0.02, 0.02)
+                    mass = self.calculate_mass(size_px)
+
+                    new_asteroid = Asteroid(
+                        sprite=sprite,
+                        x=ax, y=ay,
+                        angle=random.uniform(0, 2 * math.pi),
+                        rotation_speed=rot_speed,
+                        orbit_center=None,
+                        orbit_radius=0,
+                        orbit_speed=0,
+                        size_px=size_px,
+                        type_key=sprite_key,
+                        mass=mass
+                    )
+                    self.asteroids.append(new_asteroid)
+
+            # --- РАЗВЕДЧИК В КОМНАТЕ (0, 1) ---
+            if self.x == 0 and self.y == 1:
+                from game_objects.enemy import ScoutShip
+                from sprites import get_scout_sprites, get_scout_destroyed_sprite
+
+                scout_idle, scout_anim = get_scout_sprites()
+                scout_destroyed = get_scout_destroyed_sprite()
+
+                start_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
+                start_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
+
+                scout = ScoutShip(
+                    x=start_x,
+                    y=start_y,
+                    idle_sprite=scout_idle,
+                    movement_sprites=scout_anim,
+                    sector_x=self.x,
+                    sector_y=self.y,
+                    room_width=ROOM_WIDTH,
+                    room_height=ROOM_HEIGHT
+                )
+                scout.set_sector(self)
+                scout.set_sector(self)
+                scout.set_destroyed_sprite(scout_destroyed)
+                self.objects.append(scout)
+                print(f"[DEBUG] Разведчик добавлен в комнату ({self.x}, {self.y})")
+            self.is_generated = True
+            print(f"[DEBUG] Комната (0,1): сгенерировано {len(self.asteroids)} астероидов в пучке R=400")
+            return
+
 
         # --- ОБЫЧНАЯ ЛОГИКА (все остальные комнаты) ---
         cluster_count = random.randint(6, 8)
@@ -102,7 +172,7 @@ class Sector:
             cluster_y = room_center_y + random.randint(-margin, margin)
 
             for _ in range(cluster_size):
-                radius = 350
+                radius = 500
                 angle = random.uniform(0, 2 * math.pi)
                 dist = random.uniform(0, radius)
 
@@ -151,33 +221,6 @@ class Sector:
             planet_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2)
             new_planet = StaticPlanet(sprite=planet_sprite, x=planet_x, y=planet_y)
             self.objects.append(new_planet)
-
-        # --- РАЗВЕДЧИК В КОМНАТЕ (0, 1) ---
-        if self.x == 0 and self.y == 1:
-            from game_objects.enemy import ScoutShip
-            from sprites import get_scout_sprites, get_scout_destroyed_sprite
-
-            scout_idle, scout_anim = get_scout_sprites()
-            scout_destroyed = get_scout_destroyed_sprite()
-
-            start_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
-            start_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
-
-            scout = ScoutShip(
-                x=start_x,
-                y=start_y,
-                idle_sprite=scout_idle,
-                movement_sprites=scout_anim,
-                sector_x=self.x,
-                sector_y=self.y,
-                room_width=ROOM_WIDTH,
-                room_height=ROOM_HEIGHT
-            )
-            scout.set_sector(self)
-            scout.set_sector(self)
-            scout.set_destroyed_sprite(scout_destroyed)
-            self.objects.append(scout)
-            print(f"[DEBUG] Разведчик добавлен в комнату ({self.x}, {self.y})")
 
         # --- ИСТРЕБИТЕЛЬ В КОМНАТЕ (-1, 0) ---
         if self.x == -1 and self.y == 0:

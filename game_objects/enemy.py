@@ -16,8 +16,8 @@ class ScoutShip:
         self.angular_velocity = 0.0
 
         # Физика
-        self.max_angular_velocity = 3.0
-        self.turn_acceleration = 0.25
+        self.max_angular_velocity = 4.0  # быстрее поворачивается
+        self.turn_acceleration = 0.35  # резче начинает поворот
         self.max_speed = 6.0
 
         # Спрайты
@@ -42,10 +42,10 @@ class ScoutShip:
 
 
         # Облёт препятствий
-        self.obstacle_scan_range = 300    # дистанция обнаружения астероида
-        self.avoidance_angle = 0          # текущий угол уклонения (0 = не уклоняется)
-        self.avoidance_direction = 1      # 1 = вправо, -1 = влево
-        self.avoidance_decay = 0.95       # как быстро затухает уклонение
+        self.obstacle_scan_range = 450  # видит астероиды дальше
+        self.avoidance_angle = 60
+        self.avoidance_direction = 1
+        self.avoidance_decay = 0.90  # быстрее возвращается к курсу после обхода
 
         # Границы комнаты — абсолютные мировые координаты
         self.room_left = sector_x * room_width
@@ -124,7 +124,7 @@ class ScoutShip:
             ast_radius = max(ast.rect.width, ast.rect.height) / 2 if hasattr(ast, 'rect') else 20
 
             # «Коридор» — если астероид в пределах коридора впереди
-            if abs(side_offset) < ast_radius + 30:
+            if abs(side_offset) < ast_radius + 50:
                 if forward_proj < closest_dist:
                     closest_dist = forward_proj
                     closest_obstacle = ast
@@ -134,7 +134,7 @@ class ScoutShip:
         if closest_obstacle is not None:
             # Чем ближе астероид, тем сильнее уклонение
             urgency = 1.0 - (closest_dist / self.obstacle_scan_range)
-            self.avoidance_angle = closest_side * urgency * 60  # до 45° отклонения
+            self.avoidance_angle = closest_side * urgency * 90  # до 90° отклонения
             self.avoidance_direction = closest_side
         else:
             # Постепенно возвращаемся к курсу

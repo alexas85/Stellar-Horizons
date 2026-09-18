@@ -13,6 +13,8 @@ class Rocket:
         self.distance_traveled = 0
         self.speed = 8.0
         self.turn_speed = 4.0
+        self.homing_start_distance = 200 # летит прямо первые 100 пикселей
+
 
         self.sprites = None
         self.animation_index = 0
@@ -46,8 +48,10 @@ class Rocket:
         self.trail_sprite = sprite
 
     def update(self):
-        # --- Самонаведение и движение (без изменений) ---
-        if self.target is not None and not self.target.is_destroyed:
+        # --- Самонаведение и движение ---
+        if (self.target is not None and not self.target.is_destroyed
+                and self.distance_traveled >= self.homing_start_distance):
+
             dx = self.target.x - self.x
             dy = self.target.y - self.y
             target_angle = math.degrees(math.atan2(dy, dx))
