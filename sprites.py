@@ -173,3 +173,10 @@ def get_destroyer_debris_sprites():
         path = f"ships/class_4/destroyer_debris_{i}.png"
         sprites.append(load_image(path))
     return sprites
+def get_scout_debris_sprites():
+    """Загружает 3 спрайта осколков разведчика."""
+    sprites = []
+    for i in range(1, 4):
+        path = f"ships/class_4/scout_debris_{i}.png"
+        sprites.append(load_image(path))
+    return sprites

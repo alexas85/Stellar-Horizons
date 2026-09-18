@@ -22,7 +22,7 @@ from sprites import get_sparks_sprites
 from game_objects.drone import ScanDrone, RepairDrone
 from game_objects.amoeba import SpaceAmoeba
 from game_objects.debris import ShipDebris
-from sprites import get_destroyer_debris_sprites
+from sprites import get_destroyer_debris_sprites, get_scout_debris_sprites
 from ui_config import HUD_NEON, HUD_GLOW, HUD_TEXT, HUD_BG_ALPHA, HUD_BORDER_WIDTH, HUD_GAP, HUD_NOISE_INTENSITY, HUD_NOISE_LINE_ALPHA, HUD_GLOW_OVERLAY_ALPHA
 
 
@@ -151,6 +151,8 @@ def main():
     rockets = []
     debris_list = []
     destroyer_debris_sprites = get_destroyer_debris_sprites()
+    scout_debris_sprites = get_scout_debris_sprites()
+
 
     locked_target = None
     running = True
@@ -1035,7 +1037,6 @@ def main():
                                 explosions.append(Explosion(bullet.x, bullet.y, sparks_sprites))
                             break
 
-
         # --- ОБНОВЛЕНИЕ РАКЕТ ---
         for rocket in rockets[:]:
             rocket.update()
@@ -1049,18 +1050,23 @@ def main():
                 was_destroyed = target.is_destroyed
                 target.take_damage(100)
 
-                # Если истребитель только что уничтожен — спавним осколки
-                if (isinstance(target, DestroyerShip)
-                        and not was_destroyed
-                        and target.is_destroyed
-                        and destroyer_debris_sprites):
-                    for debris_sprite in destroyer_debris_sprites:
-                        debris = ShipDebris(target.x, target.y, debris_sprite)
-                        debris_list.append(debris)
-                    # Удаляем истребитель из сектора
-                    if current_sector and target in current_sector.objects:
-                        current_sector.objects.remove(target)
-                    print("[ACTION] Истребитель разрушен на осколки")
+                # Если корабль только что уничтожен — спавним осколки
+                if not was_destroyed and target.is_destroyed:
+                    debris_sprites = []
+
+                    if isinstance(target, DestroyerShip) and destroyer_debris_sprites:
+                        debris_sprites = destroyer_debris_sprites
+                        print("[ACTION] Истребитель разрушен на осколки")
+                    elif isinstance(target, ScoutShip) and scout_debris_sprites:
+                        debris_sprites = scout_debris_sprites
+                        print("[ACTION] Разведчик разрушен на осколки")
+
+                    if debris_sprites:
+                        for debris_sprite in debris_sprites:
+                            debris = ShipDebris(target.x, target.y, debris_sprite)
+                            debris_list.append(debris)
+                        if current_sector and target in current_sector.objects:
+                            current_sector.objects.remove(target)
 
                 rockets.remove(rocket)
             elif not rocket.is_active():
