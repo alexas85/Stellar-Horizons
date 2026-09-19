@@ -17,23 +17,24 @@ class WardenShip:
         self.movement_sprites = movement_sprites
         self.original_image = idle_sprite
 
-        # Физика — медленный корабль
+        # Физика — медленный, тяжёлый корабль
         self.max_speed = 2.5
         self.acceleration = 0.05
-        self.max_angular_velocity = 2.0
-        self.turn_step = 0.2
+        self.max_angular_velocity = 0.8   # медленный поворот
+        self.turn_step = 0.08              # плавное нарастание поворота
 
         # Базовый курс (прямая траектория)
         self.base_direction_angle = direction_angle
 
         # Облёт препятствий
         self.avoidance_angle = 0.0
-        self.avoidance_decay = 0.92
-        self.obstacle_scan_range = 350
+        self.avoidance_decay = 0.96        # плавный возврат к курсу
+        self.obstacle_scan_range = 1650     # замечает астероиды далеко
+        self.avoidance_deadzone = 2.0      # мёртвая зона — ниже этого угла не уклоняется
 
         # Логика исчезновения
         self.out_of_view_timer = 0.0
-        self.despawn_delay = 15000  # 15 секунд вне поля зрения
+        self.despawn_delay = 15000
         self.should_despawn = False
 
         # Анимация
@@ -56,13 +57,17 @@ class WardenShip:
         self.rect.center = (int(self.x), int(self.y))
 
     def _check_obstacles_ahead(self):
-        """Проверяет астероиды на пути и задаёт угол уклонения."""
+        """Проверяет астероиды на дальнем расстоянии и плавно задаёт угол уклонения."""
         if self.sector is None or not hasattr(self.sector, 'asteroids'):
             self.avoidance_angle *= self.avoidance_decay
+            if abs(self.avoidance_angle) < self.avoidance_deadzone:
+                self.avoidance_angle = 0.0
             return
 
         if not self.sector.asteroids:
             self.avoidance_angle *= self.avoidance_decay
+            if abs(self.avoidance_angle) < self.avoidance_deadzone:
+                self.avoidance_angle = 0.0
             return
 
         rad = math.radians(self.angle)
@@ -93,18 +98,25 @@ class WardenShip:
 
             ast_radius = max(ast.rect.width, ast.rect.height) / 2 if hasattr(ast, 'rect') else 20
 
-            if abs(side_offset) < ast_radius + 60:
+            # Широкий коридор — крупный корабль начинает уклоняться рано
+            corridor_width = ast_radius + 80
+            if abs(side_offset) < corridor_width:
                 if forward_proj < closest_dist:
                     closest_dist = forward_proj
                     closest_side = -1 if side_offset > 0 else 1
 
         if closest_dist < self.obstacle_scan_range:
+            # Плавное нарастание: чем ближе, тем сильнее (но не резко)
             urgency = 1.0 - (closest_dist / self.obstacle_scan_range)
-            self.avoidance_angle = closest_side * urgency * 75
+            # Квадратичная зависимость — уклонение нарастает мягко
+            target_avoidance = closest_side * (urgency ** 1.5) * 60
+
+            # Плавная интерполяция к целевому углу уклонения (а не резкий скачок)
+            self.avoidance_angle += (target_avoidance - self.avoidance_angle) * 0.08
         else:
             self.avoidance_angle *= self.avoidance_decay
-            if abs(self.avoidance_angle) < 0.5:
-                self.avoidance_angle = 0
+            if abs(self.avoidance_angle) < self.avoidance_deadzone:
+                self.avoidance_angle = 0.0
 
     def _rotate_towards(self, target_angle):
         """Плавный поворот к целевому углу."""
@@ -161,7 +173,7 @@ class WardenShip:
             if in_view:
                 self.out_of_view_timer = 0.0
             else:
-                self.out_of_view_timer += 16  # ~60 FPS
+                self.out_of_view_timer += 16
                 if self.out_of_view_timer >= self.despawn_delay:
                     self.should_despawn = True
 
