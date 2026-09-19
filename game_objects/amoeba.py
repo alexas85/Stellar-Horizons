@@ -1,3 +1,4 @@
+# game_objects/amoeba.py
 import pygame
 import math
 import random
@@ -75,8 +76,8 @@ class SpaceAmoeba:
         self.absorb_pull = 0.2
 
         # Прочность
-        self.hp = 300
-        self.max_hp = 300
+        self.hp = 100 # позже будет 300
+        self.max_hp = 100  # позже будет 300
         self.is_destroyed = False
         # --- ЛОГИКА СМЕРТИ ---
         self.death_state = "ALIVE"    # ALIVE → DYING → BURST
@@ -273,6 +274,25 @@ class SpaceAmoeba:
                 self._spawn_death_circles()
                 print("[DEBUG] Амёба распадается на кристаллы и осколки")
 
+        elif self.death_state == "BURST":
+            # Обновляем прозрачность и позицию осколков
+            dt = 0.016
+            to_remove = []
+            for c in self.death_circles:
+                c['alpha'] -= c['fade_speed'] * dt
+                c['x'] += c['drift_x'] * dt
+                c['y'] += c['drift_y'] * dt
+                if c['alpha'] <= 0:
+                    to_remove.append(c)
+
+            # Удаляем полностью исчезнувшие осколки
+            for c in to_remove:
+                self.death_circles.remove(c)
+
+            # Если все осколки исчезли — помечаем объект как полностью уничтоженный
+            if not self.death_circles:
+                self.fully_destroyed = True
+
     def _spawn_death_circles(self):
         self.death_circles = []
         count = random.randint(12, 20)  # чуть больше осколков
@@ -285,7 +305,7 @@ class SpaceAmoeba:
                 'y': self.y + math.sin(angle) * dist,
                 'radius': random.uniform(6, 12),  # в ~4 раза меньше
                 'alpha': 255.0,
-                'fade_speed': random.uniform(3.0, 5.0),  # исчезают за ~1 сек
+                'fade_speed': 50.0, #  random.uniform(1.0, 3.0),  # исчезают за ~1 сек
                 'drift_x': math.cos(angle) * speed,
                 'drift_y': math.sin(angle) * speed,
             })

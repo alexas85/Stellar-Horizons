@@ -1,3 +1,4 @@
+# game_objects/crystal.py
 import pygame
 import math
 import random
@@ -9,8 +10,20 @@ class Crystal:
     def __init__(self, x, y, sprite):
         self.x = x
         self.y = y
-        self.sprite = sprite
-        self.size_px = sprite.get_width()
+
+        # --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+        # Получаем оригинальные размеры
+        orig_w, orig_h = sprite.get_size()
+
+        # Вычисляем новые размеры (в 2 раза меньше)
+        new_w = orig_w // 2
+        new_h = orig_h // 2
+
+        # Масштабируем спрайт
+        self.sprite = pygame.transform.smoothscale(sprite, (new_w, new_h))
+        # -----------------------
+
+        self.size_px = new_w  # Обновляем размер на новый
         self.type_key = "crystal"
         self.angle = 0.0
         self.rotation_speed = random.uniform(-0.02, 0.02)
@@ -21,8 +34,9 @@ class Crystal:
         self.collection_start_time = 0.0
         self.marked_for_removal = False
 
-        self.width = self.size_px
-        self.height = self.size_px
+        # Обновляем ширину и высоту на основе нового размера спрайта
+        self.width = new_w
+        self.height = new_h
         self.mass = 1.0
 
     @property
@@ -52,6 +66,8 @@ class Crystal:
     def draw(self, screen, camera):
         draw_x = self.x - camera.x
         draw_y = self.y - camera.y
+
+        # Вращаем уже уменьшенный спрайт
         rotated = pygame.transform.rotate(self.sprite, math.degrees(self.angle))
         rect = rotated.get_rect(center=(draw_x, draw_y))
         screen.blit(rotated, rect)
