@@ -16,11 +16,18 @@ class StaticShip:
     def __init__(self, sprite, x, y, angle=0.0):
         # Сразу грузим спрайт 20% — обломок изначально выглядит повреждённым
         repair_sprites = self._get_repair_sprites()
-        self.sprite = repair_sprites.get(20, sprite)
-        self._original_sprite = sprite  # На случай, если спрайты не найдутся
+        self._base_sprite = repair_sprites.get(20, sprite)
+        self._original_sprite = sprite
+        self.sprite = self._base_sprite
         self.x = x
         self.y = y
-        self.angle = angle
+
+        # Случайный поворот 25–75 градусов
+        if angle == 0.0:
+            self.angle = random.uniform(25, 75)
+        else:
+            self.angle = angle
+
         self.highlight_radius = 128
         self.highlight_thickness = 1
         self.highlight_alpha = 70
@@ -36,7 +43,6 @@ class StaticShip:
             "energy": 3
         }
 
-        # Склад (доступен после ремонта Корпуса до 100%)
         self.storage = {
             "metal": 0,
             "precious": 0,
@@ -65,14 +71,12 @@ class StaticShip:
 
     @property
     def is_habitable(self):
-        """True, если Корпус отремонтирован до 100%."""
         return self._is_scanned and self.modules.get("Корпус", 0) >= 100
 
     def _update_sprite_by_hull(self):
-        """Меняет спрайт в зависимости от целостности Корпуса."""
+        """Меняет базовый спрайт в зависимости от целостности Корпуса."""
         repair_sprites = self._get_repair_sprites()
 
-        # До сканирования — Корпус считаем равным 20%
         if not self._is_scanned or not self.modules:
             hull = 20
         else:
@@ -81,18 +85,16 @@ class StaticShip:
         if hull >= 100:
             new_sprite = repair_sprites.get(100, self._original_sprite)
         else:
-            # Округляем вниз до ближайшего десятка: 20-29 → 20, 30-39 → 30, ...
             tier = max(20, (hull // 10) * 10)
             if tier in repair_sprites:
                 new_sprite = repair_sprites[tier]
             else:
                 new_sprite = self._original_sprite
 
-        if new_sprite is not None and new_sprite is not self.sprite:
-            self.sprite = new_sprite
+        if new_sprite is not None and new_sprite is not self._base_sprite:
+            self._base_sprite = new_sprite
 
     def deposit_resource(self, name, amount):
-        """Помещает ресурс на склад. Возвращает фактически помещённое количество."""
         space_left = self.storage_max - self.storage.get(name, 0)
         if space_left <= 0:
             return 0
@@ -101,7 +103,6 @@ class StaticShip:
         return actual
 
     def withdraw_resource(self, name, amount):
-        """Забирает ресурс со склада. Возвращает фактически забранное количество."""
         stored = self.storage.get(name, 0)
         actual = min(amount, stored)
         self.storage[name] = stored - actual
@@ -113,8 +114,11 @@ class StaticShip:
     def draw(self, screen, camera, show_highlight=False):
         screen_x = self.x - camera.x
         screen_y = self.y - camera.y
-        rect = self.sprite.get_rect(center=(screen_x, screen_y))
-        screen.blit(self.sprite, rect)
+
+        # Поворачиваем базовый спрайт на self.angle
+        rotated = pygame.transform.rotate(self._base_sprite, -self.angle)
+        rect = rotated.get_rect(center=(screen_x, screen_y))
+        screen.blit(rotated, rect)
 
         if show_highlight:
             cx, cy = rect.center

@@ -59,6 +59,8 @@ class WardenShip:
         self.max_hp = WARDEN_MAX_HP
         self.is_destroyed = False
         self.damage_cooldown = 0
+        self.hp_bar_alpha = 0
+        self._frames_since_damage = 0
 
         # Спрайты астероидов для спавна осколков
         self.asteroid_sprites = None
@@ -104,6 +106,9 @@ class WardenShip:
             return
         self.hp -= amount
         self.damage_cooldown = DAMAGE_COOLDOWN_FRAMES
+        self.hp_bar_alpha = 255
+        self._frames_since_damage = 0
+
         if self.hp <= 0:
             self.hp = 0
             self.is_destroyed = True
@@ -353,6 +358,10 @@ class WardenShip:
         if self.damage_cooldown > 0:
             self.damage_cooldown -= 1
 
+        self._frames_since_damage += 1
+        if self._frames_since_damage > 180:  # 3 сек без урона
+            self.hp_bar_alpha = max(0, self.hp_bar_alpha - 255 / 60)  # затухание за 1 сек
+
         effective_angle = self.base_direction_angle + self.avoidance_angle
         self._rotate_towards(effective_angle)
 
@@ -451,17 +460,20 @@ class WardenShip:
         rect = rotated.get_rect(center=(int(draw_x), int(draw_y)))
         surface.blit(rotated, rect)
 
-        # --- HP бар (как у амёбы) ---
-        if self.hp < self.max_hp and not self.is_destroyed:
+        # --- HP бар (с затуханием) ---
+        if self.hp_bar_alpha > 0 and not self.is_destroyed:
             bar_w = 100
             bar_h = 5
             bar_x = int(draw_x - bar_w // 2)
             bar_y = int(draw_y - rect.height // 2 - 12)
-            pygame.draw.rect(surface, (30, 0, 0), (bar_x, bar_y, bar_w, bar_h))
+            alpha = int(self.hp_bar_alpha)
+            bar_surf = pygame.Surface((bar_w + 2, bar_h + 2), pygame.SRCALPHA)
+            pygame.draw.rect(bar_surf, (30, 0, 0, alpha), (1, 1, bar_w, bar_h))
             fill_w = int(bar_w * (self.hp / self.max_hp))
             if fill_w > 0:
-                pygame.draw.rect(surface, (80, 200, 100), (bar_x, bar_y, fill_w, bar_h))
-            pygame.draw.rect(surface, (80, 80, 80), (bar_x, bar_y, bar_w, bar_h), 1)
+                pygame.draw.rect(bar_surf, (80, 200, 100, alpha), (1, 1, fill_w, bar_h))
+            pygame.draw.rect(bar_surf, (80, 80, 80, alpha), (1, 1, bar_w, bar_h), 1)
+            surface.blit(bar_surf, (bar_x - 1, bar_y - 1))
 
         # --- DEBUG ---
         if DEBUG_WARDEN:
