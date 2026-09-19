@@ -3,7 +3,7 @@ import math
 
 
 class WardenShip:
-    """Орбитальный страж — NPC, пролетающий через комнату по прямой с обходом астероидов."""
+    """Орбитальный страж — NPC, пролетающий через комнату по прямой с обходом крупных астероидов."""
 
     def __init__(self, x, y, idle_sprite, movement_sprites, direction_angle):
         self.x = x
@@ -20,17 +20,18 @@ class WardenShip:
         # Физика — медленный, тяжёлый корабль
         self.max_speed = 2.5
         self.acceleration = 0.05
-        self.max_angular_velocity = 0.8   # медленный поворот
-        self.turn_step = 0.08              # плавное нарастание поворота
+        self.max_angular_velocity = 0.8
+        self.turn_step = 0.08
+        self.mass = 500.0  # Очень тяжёлый — мелкие астероиды его не сдвинут
 
         # Базовый курс (прямая траектория)
         self.base_direction_angle = direction_angle
 
-        # Облёт препятствий
+        # Облёт препятствий — только крупные астероиды (64px+)
         self.avoidance_angle = 0.0
-        self.avoidance_decay = 0.96        # плавный возврат к курсу
-        self.obstacle_scan_range = 1650     # замечает астероиды далеко
-        self.avoidance_deadzone = 2.0      # мёртвая зона — ниже этого угла не уклоняется
+        self.avoidance_decay = 0.96
+        self.obstacle_scan_range = 1650
+        self.avoidance_deadzone = 2.0
 
         # Логика исчезновения
         self.out_of_view_timer = 0.0
@@ -57,7 +58,11 @@ class WardenShip:
         self.rect.center = (int(self.x), int(self.y))
 
     def _check_obstacles_ahead(self):
-        """Проверяет астероиды на дальнем расстоянии и плавно задаёт угол уклонения."""
+        """
+        Суммарное давление от всех крупных астероидов (64px+) в коридоре.
+        Каждый астероид толкает корабль вбок — чем ближе, тем сильнее.
+        Сумма всех сил даёт стабильное направление уклонения без качания.
+        """
         if self.sector is None or not hasattr(self.sector, 'asteroids'):
             self.avoidance_angle *= self.avoidance_decay
             if abs(self.avoidance_angle) < self.avoidance_deadzone:
@@ -74,11 +79,15 @@ class WardenShip:
         dir_x = math.cos(rad)
         dir_y = math.sin(rad)
 
-        closest_dist = self.obstacle_scan_range
-        closest_side = 1
+        # Суммарное давление: + = вправо, - = влево
+        total_pressure = 0.0
 
         for ast in self.sector.asteroids:
             if getattr(ast, 'marked_for_removal', False):
+                continue
+
+            # Игнорируем мелкие и средние — уклоняемся только от крупных
+            if ast.size_px < 64:
                 continue
 
             dx = ast.x - self.x
@@ -88,35 +97,73 @@ class WardenShip:
             if dist > self.obstacle_scan_range or dist < 1:
                 continue
 
+            # Проекция вперёд — астероид впереди или позади?
             forward_proj = dx * dir_x + dy * dir_y
             if forward_proj < 0:
                 continue
 
+            # Боковое смещение — справа или слева?
             perp_x = -dir_y
             perp_y = dir_x
             side_offset = dx * perp_x + dy * perp_y
 
-            ast_radius = max(ast.rect.width, ast.rect.height) / 2 if hasattr(ast, 'rect') else 20
-
-            # Широкий коридор — крупный корабль начинает уклоняться рано
+            ast_radius = max(ast.rect.width, ast.rect.height) / 2 if hasattr(ast, 'rect') else 32
             corridor_width = ast_radius + 80
+
             if abs(side_offset) < corridor_width:
-                if forward_proj < closest_dist:
-                    closest_dist = forward_proj
-                    closest_side = -1 if side_offset > 0 else 1
+                # Сила: тем больше, чем ближе астероид (по дистанции и по боку)
+                proximity = 1.0 - (forward_proj / self.obstacle_scan_range)
+                lateral_factor = 1.0 - (abs(side_offset) / corridor_width)
 
-        if closest_dist < self.obstacle_scan_range:
-            # Плавное нарастание: чем ближе, тем сильнее (но не резко)
-            urgency = 1.0 - (closest_dist / self.obstacle_scan_range)
-            # Квадратичная зависимость — уклонение нарастает мягко
-            target_avoidance = closest_side * (urgency ** 1.5) * 60
+                # Знак: астероид справа → толкаем влево (отрицательное давление)
+                #       астероид слева → толкаем вправо (положительное давление)
+                sign = -1 if side_offset > 0 else 1
 
-            # Плавная интерполяция к целевому углу уклонения (а не резкий скачок)
+                total_pressure += sign * proximity * lateral_factor
+
+        if abs(total_pressure) > 0.01:
+            # Превращаем давление в угол уклонения (ограничиваем 60°)
+            target_avoidance = max(-60, min(60, total_pressure * 40))
+
+            # Плавная интерполяция — никакого резкого скачка
             self.avoidance_angle += (target_avoidance - self.avoidance_angle) * 0.08
         else:
+            # Препятствий нет — плавно возвращаемся к прямому курсу
             self.avoidance_angle *= self.avoidance_decay
             if abs(self.avoidance_angle) < self.avoidance_deadzone:
                 self.avoidance_angle = 0.0
+
+    def _handle_small_asteroid_collisions(self):
+        """Толкает мелкие (16px) и средние (32px) астероиды при столкновении. Страж не реагирует."""
+        if self.sector is None or not hasattr(self.sector, 'asteroids'):
+            return
+
+        warden_rect = pygame.Rect(0, 0, self.rect.width, self.rect.height)
+        warden_rect.center = (int(self.x), int(self.y))
+
+        speed = self.velocity.length()
+
+        for ast in self.sector.asteroids:
+            if getattr(ast, 'marked_for_removal', False):
+                continue
+
+            # Только мелкие и средние
+            if ast.size_px > 32:
+                continue
+
+            if warden_rect.colliderect(ast.rect):
+                dx = ast.x - self.x
+                dy = ast.y - self.y
+                dist = math.hypot(dx, dy)
+
+                if dist > 0:
+                    dx /= dist
+                    dy /= dist
+
+                    # Сила толчка: базовая + от скорости стража
+                    push_force = 3.0 + speed * 2.0
+
+                    ast.apply_knockback(dx * push_force, dy * push_force)
 
     def _rotate_towards(self, target_angle):
         """Плавный поворот к целевому углу."""
@@ -137,8 +184,11 @@ class WardenShip:
                 self.angular_velocity -= self.turn_step
 
     def update(self, camera_rect=None):
-        # Облёт препятствий
+        # Облёт крупных препятствий (суммарное давление)
         self._check_obstacles_ahead()
+
+        # Толкаем мелкие астероиды при столкновении
+        self._handle_small_asteroid_collisions()
 
         # Целевой угол = базовый курс + уклонение
         effective_angle = self.base_direction_angle + self.avoidance_angle
