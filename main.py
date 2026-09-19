@@ -1198,6 +1198,7 @@ def main():
                 direction_angle=flight_angle
             )
             warden_list.append(warden)
+            warden.set_asteroid_sprites(asteroid_sprites)
             print(f"[DEBUG] Орбитальный страж создан в комнате (1, 0)")
 
         # --- ОБНОВЛЕНИЕ ОРБИТАЛЬНОГО СТРАЖА ---
@@ -1210,6 +1211,25 @@ def main():
             warden.set_sector(w_sector)
 
             warden.update(camera_rect=camera)
+
+            # Собираем осколки от тарана и добавляем в сектор стража
+            if warden.pending_fragments:
+                w_sector.asteroids.extend(warden.pending_fragments)
+                warden.pending_fragments.clear()
+
+            # Очистка разрушенных астероидов в секторе стража
+            if w_sector and hasattr(w_sector, 'asteroids') and w_sector.asteroids:
+                w_sector.asteroids = [
+                    ast for ast in w_sector.asteroids if not ast.marked_for_removal
+                ]
+
+            # Уничтожение стража — взрыв + удаление
+            if warden.is_destroyed:
+                explosions.append(Explosion(warden.x, warden.y, explosion_sprites))
+                warden_list.remove(warden)
+                print("[DEBUG] Орбитальный страж уничтожен при таране!")
+                continue
+
             if warden.should_despawn:
                 warden_list.remove(warden)
                 print("[DEBUG] Орбитальный страж исчез (вне поля зрения 15 сек)")
