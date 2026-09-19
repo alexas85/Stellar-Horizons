@@ -166,6 +166,9 @@ def main():
 
     locked_target = None
     running = True
+    paused = False
+    pause_quit_rect = pygame.Rect(0, 0, 0, 0)
+    pause_save_rect = pygame.Rect(0, 0, 0, 0)
 
     trigger_distance_x = ROOM_WIDTH - 50
     trigger_distance_y = ROOM_HEIGHT - 50
@@ -597,13 +600,20 @@ def main():
                 if event.key == pygame.K_F3:
                     show_scout_indicator = not show_scout_indicator
                     print(f"[DEBUG] Индикатор разведчика: {'ВКЛ' if show_scout_indicator else 'ВЫКЛ'}")
-                if event.key == pygame.K_ESCAPE and game_over_state == 2:
-                    running = False
+                if event.key == pygame.K_ESCAPE:
+                    if game_over_state == 2:
+                        running = False
+                    else:
+                        paused = not paused
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 3:  # Правая кнопка — запуск ракеты
                     fire_rocket = True
                 if event.button == 1:  # Левая кнопка — UI
+                    if paused:
+                        if pause_quit_rect.collidepoint(event.pos):
+                            running = False
+                        continue
                     # --- ЛОГИКА КЛИКОВ ПО UI ---
 
                     # 0. Если открыт режим склада
@@ -786,9 +796,9 @@ def main():
                             pass  # Логика разборки без сканирования
 
         keys = pygame.key.get_pressed()
-
-        # --- ЛОГИКА КНОПКИ ДЕЙСТВИЯ (E) ---
-        interaction_target = None
+        if not paused:
+            # --- ЛОГИКА КНОПКИ ДЕЙСТВИЯ (E) ---
+            interaction_target = None
 
         if (not ui_active and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and
                 keys[pygame.K_e]):
@@ -1291,7 +1301,7 @@ def main():
                 if isinstance(obj, list):
                     continue
 
-                if hasattr(obj, 'update'):
+                if hasattr(obj, 'update') and not paused:
                     if isinstance(obj, DestroyerShip):
                         obj.update(target=player)
                     elif isinstance(obj, SpaceAmoeba):
@@ -1388,17 +1398,18 @@ def main():
                 warden.draw(screen, camera)
 
             # --- ПУЛИ ИСТРЕБИТЕЛЯ ---
-            for obj in all_objects:
-                if isinstance(obj, DestroyerShip):
-                    for bullet in obj.bullets[:]:
-                        bullet.update()
-                        if not bullet.is_active():
-                            obj.bullets.remove(bullet)
-                        elif bullet.rect.colliderect(player.rect):
-                            player.take_damage(bullet.damage)
-                            obj.bullets.remove(bullet)
-                    for bullet in obj.bullets:
-                        bullet.draw(screen, camera)
+            if not paused:
+                for obj in all_objects:
+                    if isinstance(obj, DestroyerShip):
+                        for bullet in obj.bullets[:]:
+                            bullet.update()
+                            if not bullet.is_active():
+                                obj.bullets.remove(bullet)
+                            elif bullet.rect.colliderect(player.rect):
+                                player.take_damage(bullet.damage)
+                                obj.bullets.remove(bullet)
+                        for bullet in obj.bullets:
+                            bullet.draw(screen, camera)
 
             # --- МЕНЮ ОБЛОМКА (голографические кнопки) ---
                     # Отрисовка дронов-ремонтников (ПОСЛЕ всех кораблей, но ДО UI)
@@ -1703,6 +1714,40 @@ def main():
                 sub_rect = sub_surf.get_rect(
                     center=(CAMERA_WIDTH // 2, frame_y + frame_padding + text_h + 20 + sub_h // 2))
                 screen.blit(sub_surf, sub_rect)
+
+        # --- МЕНЮ ПАУЗЫ ---
+        if paused:
+            dim = pygame.Surface((CAMERA_WIDTH, CAMERA_HEIGHT), pygame.SRCALPHA)
+            dim.fill((0, 0, 0, 140))
+            screen.blit(dim, (0, 0))
+
+            h_time = pygame.time.get_ticks() / 1000.0
+
+            font_pause = pygame.font.SysFont("consolas", 36, bold=True)
+            title_surf = font_pause.render("ПАУЗА", True, HUD_NEON[:3])
+            title_rect = title_surf.get_rect(center=(CAMERA_WIDTH // 2, CAMERA_HEIGHT // 2 - 80))
+            screen.blit(title_surf, title_rect)
+
+            btn_w, btn_h = 260, 40
+            btn_x = CAMERA_WIDTH // 2 - btn_w // 2
+
+            # Кнопка "ВЫЙТИ ИЗ ИГРЫ" — активная
+            btn_y_quit = CAMERA_HEIGHT // 2 - 20
+            pause_quit_rect = pygame.Rect(btn_x, btn_y_quit, btn_w, btn_h)
+            draw_hologram_button(screen, "ВЫЙТИ ИЗ ИГРЫ", btn_x, btn_y_quit, btn_w, btn_h, h_time)
+
+            # Кнопка "СОХРАНИТЬ" — неактивная (серая)
+            btn_y_save = CAMERA_HEIGHT // 2 + 30
+            pause_save_rect = pygame.Rect(btn_x, btn_y_save, btn_w, btn_h)
+
+            save_surf = pygame.Surface((btn_w, btn_h), pygame.SRCALPHA)
+            save_surf.fill((*HUD_NEON[:3], 30))
+            pygame.draw.rect(save_surf, (80, 80, 80), (0, 0, btn_w, btn_h), HUD_BORDER_WIDTH)
+            font_btn = pygame.font.SysFont("consolas", 16, bold=True)
+            save_text = font_btn.render("СОХРАНИТЬ", True, (100, 100, 100))
+            save_text_rect = save_text.get_rect(center=(btn_w // 2, btn_h // 2))
+            save_surf.blit(save_text, save_text_rect)
+            screen.blit(save_surf, (btn_x, btn_y_save))
 
         pygame.display.flip()
 

@@ -299,19 +299,25 @@ class Sector:
                 if random.random() > 0.5:
                     orbit_speed = -orbit_speed
 
+                initial_angle = random.uniform(0, 2 * math.pi)
+
+                # Вычисляем стартовую позицию на орбите
+                start_x = center_x + math.cos(initial_angle) * dist
+                start_y = center_y + math.sin(initial_angle) * dist
+
                 belt_asteroids.append(
                     Asteroid(
                         sprite=sprite,
-                        x=center_x,
-                        y=center_y,
-                        angle=random.uniform(0, 2 * math.pi),
+                        x=start_x,
+                        y=start_y,
+                        angle=initial_angle,
                         rotation_speed=random.uniform(-0.01, 0.01),
                         orbit_center=(center_x, center_y),
                         orbit_radius=dist,
                         orbit_speed=orbit_speed,
                         size_px=size_px,
                         type_key=sprite_key,
-                        mass=mass  # <--- ПЕРЕДАЁМ МАССУ
+                        mass=mass
                     )
                 )
 

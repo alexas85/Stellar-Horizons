@@ -196,3 +196,12 @@ def get_scout_debris_sprites():
     return sprites
 def get_crystal_sprite():
     return load_image("resources/crystal.png")
+def get_wreck_repair_sprites():
+    """Загружает спрайты стадий ремонта обломка (20% → 90% → idle 100%)."""
+    folder = "ships/class_3"
+    sprites = {}
+    for pct in [20, 30, 40, 50, 60, 70, 80, 90]:
+        path = f"{folder}/destroyer_repair_128px_{pct}.png"
+        sprites[pct] = load_image(path)
+    sprites[100] = load_image(f"{folder}/destroyer_128px_idle.png")
+    return sprites

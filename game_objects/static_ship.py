@@ -1,11 +1,23 @@
-# game_objects/static_ship.py
 import pygame
 import random
 
 
 class StaticShip:
+    # Кэш спрайтов стадий ремонта — загружается один раз
+    _repair_sprites_cache = None
+
+    @classmethod
+    def _get_repair_sprites(cls):
+        if cls._repair_sprites_cache is None:
+            from sprites import get_wreck_repair_sprites
+            cls._repair_sprites_cache = get_wreck_repair_sprites()
+        return cls._repair_sprites_cache
+
     def __init__(self, sprite, x, y, angle=0.0):
-        self.sprite = sprite
+        # Сразу грузим спрайт 20% — обломок изначально выглядит повреждённым
+        repair_sprites = self._get_repair_sprites()
+        self.sprite = repair_sprites.get(20, sprite)
+        self._original_sprite = sprite  # На случай, если спрайты не найдутся
         self.x = x
         self.y = y
         self.angle = angle
@@ -45,15 +57,39 @@ class StaticShip:
         if value and not self.modules:
             self.modules = {
                 "Броня": random.randint(0, 100),
-                "Корпус": random.randint(0, 100),
+                "Корпус": 20,
                 "Двигатель": random.randint(0, 100),
                 "Вооружение": random.randint(0, 100),
             }
+        self._update_sprite_by_hull()
 
     @property
     def is_habitable(self):
         """True, если Корпус отремонтирован до 100%."""
         return self._is_scanned and self.modules.get("Корпус", 0) >= 100
+
+    def _update_sprite_by_hull(self):
+        """Меняет спрайт в зависимости от целостности Корпуса."""
+        repair_sprites = self._get_repair_sprites()
+
+        # До сканирования — Корпус считаем равным 20%
+        if not self._is_scanned or not self.modules:
+            hull = 20
+        else:
+            hull = int(self.modules.get("Корпус", 0))
+
+        if hull >= 100:
+            new_sprite = repair_sprites.get(100, self._original_sprite)
+        else:
+            # Округляем вниз до ближайшего десятка: 20-29 → 20, 30-39 → 30, ...
+            tier = max(20, (hull // 10) * 10)
+            if tier in repair_sprites:
+                new_sprite = repair_sprites[tier]
+            else:
+                new_sprite = self._original_sprite
+
+        if new_sprite is not None and new_sprite is not self.sprite:
+            self.sprite = new_sprite
 
     def deposit_resource(self, name, amount):
         """Помещает ресурс на склад. Возвращает фактически помещённое количество."""
@@ -72,7 +108,7 @@ class StaticShip:
         return actual
 
     def update(self):
-        pass
+        self._update_sprite_by_hull()
 
     def draw(self, screen, camera, show_highlight=False):
         screen_x = self.x - camera.x
