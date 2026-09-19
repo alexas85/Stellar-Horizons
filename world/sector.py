@@ -258,7 +258,16 @@ class Sector:
             station_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2)
             station = Station(sprite=station_sprite, x=station_x, y=station_y)
             self.objects.append(station)
-            print(f"[DEBUG] Станция добавлена в комнату ({self.x}, {self.y})")
+
+            # Очищаем зону вокруг станции от астероидов
+            clear_radius = 220  # радиус безопасности (спрайт станции 256px)
+            self.asteroids = [
+                ast for ast in self.asteroids
+                if math.hypot(ast.x - station_x, ast.y - station_y) > clear_radius
+            ]
+            removed = len(self.asteroids) - len([a for a in self.asteroids])
+            print(f"[DEBUG] Станция добавлена в комнату ({self.x}, {self.y}), "
+                  f"астероиды в радиусе {clear_radius}px очищены")
 
     def generate_belt(self, asteroid_sprites, inner_radius, outer_radius, counts, wreck_sprite=None,
                       planet_sprite=None, station_sprite=None):

@@ -34,7 +34,7 @@ from game_objects.bullet import Bullet
 def draw_hud(screen, player, font, resource_surfaces, start_x, y_offset=20):
     x = start_x
     y = y_offset
-    resource_order = ["metal", "precious", "crystal", "steel", "mineral", "uranium"]
+    resource_order = ["metal", "precious", "steel", "crystal", "mineral", "uranium"]
 
     for name in resource_order:
         count = player.inventory.get(name, 0)

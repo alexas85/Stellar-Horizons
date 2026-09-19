@@ -66,8 +66,8 @@ class PlayerShip:
         self.inventory = {
             "metal": 0,
             "precious": 0,
-            "crystal": 0,
             "steel": 0,
+            "crystal": 0,
             "mineral": 0,
             "uranium": 0
         }
@@ -461,6 +461,7 @@ class PlayerShip:
             if asteroid.marked_for_removal:
                 if hasattr(asteroid, 'type_key') and asteroid.type_key == "destroyer_debris":
                     self.add_resource("metal", random.randint(10, 15))
+                    self.add_resource("steel", random.randint(8, 12))
                     self.add_resource("precious", random.randint(5, 8))
                     self.add_resource("uranium", random.randint(0, 1))
                     self.add_resource("crystal", random.randint(0, 3))
