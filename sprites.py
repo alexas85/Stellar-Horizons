@@ -180,3 +180,5 @@ def get_scout_debris_sprites():
         path = f"ships/class_4/scout_debris_{i}.png"
         sprites.append(load_image(path))
     return sprites
+def get_crystal_sprite():
+    return load_image("resources/crystal.png")

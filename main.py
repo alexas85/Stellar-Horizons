@@ -9,6 +9,8 @@ from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
 from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
 from game_objects.static_ship import StaticShip
 from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites, get_rocket_sprites, get_explosion_sprites, get_sparks_sprites, get_player_destroyed_sprite, get_drone_sprite, get_scan_sprites
+from sprites import get_crystal_sprite
+from game_objects.crystal import Crystal
 from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
@@ -32,7 +34,7 @@ from game_objects.bullet import Bullet
 def draw_hud(screen, player, font, resource_surfaces, start_x, y_offset=20):
     x = start_x
     y = y_offset
-    resource_order = ["metal", "precious", "crystal", "energy", "mineral", "uranium"]
+    resource_order = ["metal", "precious", "crystal", "steel", "mineral", "uranium"]
 
     for name in resource_order:
         count = player.inventory.get(name, 0)
@@ -61,6 +63,8 @@ def main():
     backgrounds = get_backgrounds()
     idle_sprite, movement_sprites = get_ship_sprites(4)
     asteroid_sprites = get_asteroid_sprites()
+    crystal_sprite = get_crystal_sprite()
+
 
     wreck_path = "assets/ships/class_3/ship_destroyer_destroyer-01_128px_idle.png"
     wreck_sprite = None
@@ -150,6 +154,7 @@ def main():
     fire_rocket = False
     rockets = []
     debris_list = []
+    crystals = []
     destroyer_debris_sprites = get_destroyer_debris_sprites()
     scout_debris_sprites = get_scout_debris_sprites()
 
@@ -418,10 +423,10 @@ def main():
         deposit_rects.clear()
         withdraw_rects.clear()
 
-        resource_order = ["metal", "precious", "crystal", "energy", "mineral", "uranium"]
+        resource_order = ["metal", "precious", "crystal", "steel", "mineral", "uranium"]
         resource_names = {
             "metal": "Металл", "precious": "Драг.мет", "crystal": "Кристалл",
-            "energy": "Энергия", "mineral": "Минерал", "uranium": "Уран"
+            "steel": "Сталь", "mineral": "Минерал", "uranium": "Уран"
         }
 
         start_y = y + 28
@@ -877,6 +882,21 @@ def main():
                                     closest_debris = debris
                             if closest_debris:
                                 closest_asteroid = closest_debris
+                        # Поиск ближайшего кристалла
+                        if not closest_asteroid and crystals:
+                            closest_crystal = None
+                            closest_crystal_dist_sq = float('inf')
+                            for crystal in crystals:
+                                if crystal.marked_for_removal:
+                                    continue
+                                dx = crystal.x - player.x
+                                dy = crystal.y - player.y
+                                d_sq = dx * dx + dy * dy
+                                if d_sq <= (150 ** 2) and d_sq < closest_crystal_dist_sq:
+                                    closest_crystal_dist_sq = d_sq
+                                    closest_crystal = crystal
+                            if closest_crystal:
+                                closest_asteroid = closest_crystal
 
 
                         if closest_asteroid:
@@ -1140,13 +1160,29 @@ def main():
             current_sector.asteroids = [
                 ast for ast in current_sector.asteroids if not ast.marked_for_removal
             ]
-        # ОЧИСТКА УНИЧТОЖЕННОЙ АМЁБЫ
+        # ОЧИСТКА АМЁБЫ (только когда fully_destroyed)
         if current_sector and current_sector.objects:
             current_sector.objects = [
                 obj for obj in current_sector.objects
-                if not (isinstance(obj, SpaceAmoeba) and obj.is_destroyed)
+                if not (isinstance(obj, SpaceAmoeba) and obj.fully_destroyed)
             ]
 
+        # --- ОБНОВЛЕНИЕ КРИСТАЛЛОВ ---
+        for crystal in crystals[:]:
+            crystal.update()
+
+        # --- СПАВН КРИСТАЛЛОВ ИЗ АМЁБЫ ---
+        if current_sector and current_sector.objects:
+            for obj in current_sector.objects:
+                if isinstance(obj, SpaceAmoeba) and obj.pending_crystal_count > 0:
+                    for _ in range(obj.pending_crystal_count):
+                        cx = obj.x + random.uniform(-40, 40)
+                        cy = obj.y + random.uniform(-40, 40)
+                        crystals.append(Crystal(cx, cy, crystal_sprite))
+                    obj.pending_crystal_count = 0
+
+        # --- ОЧИСТКА СОБРАННЫХ КРИСТАЛЛОВ ---
+        crystals = [c for c in crystals if not c.marked_for_removal]
 
         # Движение камеры
         if player.on_planet_surface:
@@ -1229,7 +1265,15 @@ def main():
                     sx = int(debris.x - camera.x)
                     sy = int(debris.y - camera.y)
                     pygame.draw.circle(screen, (128, 128, 128), (sx, sy), 40, 1)
-
+            # --- СЕРАЯ ОКРУЖНОСТЬ ВОКРУГ КРИСТАЛЛОВ ---
+            for crystal in crystals:
+                if crystal.marked_for_removal:
+                    continue
+                dist_sq = (crystal.x - player.x) ** 2 + (crystal.y - player.y) ** 2
+                if dist_sq <= 150 ** 2:
+                    sx = int(crystal.x - camera.x)
+                    sy = int(crystal.y - camera.y)
+                    pygame.draw.circle(screen, (128, 128, 128), (sx, sy), 32, 1)
 
             for bullet in player.bullets:
                 bullet.draw(screen, camera)
@@ -1238,7 +1282,13 @@ def main():
             if locked_target:
                 sx = int(locked_target.x - camera.x)
                 sy = int(locked_target.y - camera.y)
-                pygame.draw.circle(screen, (255, 0, 0), (sx, sy), 40, 1)
+                # Прозрачная поверхность 80×80
+                reticle = pygame.Surface((80, 80), pygame.SRCALPHA)
+                # Неоновый квадрат, толщина 1px, полупрозрачный
+                pygame.draw.rect(reticle, (*HUD_NEON[:3], 120), (0, 0, 80, 80), 1)
+                # Неоновая точка в центре
+                pygame.draw.circle(reticle, (*HUD_NEON[:3], 160), (40, 40), 2)
+                screen.blit(reticle, (sx - 40, sy - 40))
 
             # --- РАКЕТЫ ---
             for rocket in rockets:
@@ -1256,6 +1306,11 @@ def main():
             # --- ОСКОЛКИ ---
             for debris in debris_list:
                 debris.draw(screen, camera)
+
+            # --- КРИСТАЛЛЫ ---
+            for crystal in crystals:
+                if not crystal.marked_for_removal:
+                    crystal.draw(screen, camera)
 
             # --- ДРОНЫ ---
             for drone in drones:

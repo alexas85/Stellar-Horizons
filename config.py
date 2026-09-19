@@ -35,7 +35,7 @@ RESOURCE_ICONS = {
     "metal": "assets/resources/res_metal_base.png",
     "precious": "assets/resources/res_metal_noble.png",
     "crystal": "assets/resources/res_crystal.png",
-    "energy": "assets/resources/res_energy.png",
+    "steel": "assets/resources/res_steel.png",
     "mineral": "assets/resources/res_mineral.png",
     "uranium": "assets/resources/res_uranium.png",
 }

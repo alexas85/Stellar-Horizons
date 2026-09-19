@@ -67,7 +67,7 @@ class PlayerShip:
             "metal": 0,
             "precious": 0,
             "crystal": 0,
-            "energy": 0,
+            "steel": 0,
             "mineral": 0,
             "uranium": 0
         }
@@ -329,8 +329,9 @@ class PlayerShip:
         is_small_asteroid = (hasattr(asteroid, 'type_key') and
                              (asteroid.type_key.startswith("ast_mod04") or asteroid.type_key.startswith("ast_mod01"))
                              and asteroid.size_px == 16)
+        is_crystal = hasattr(asteroid, 'type_key') and asteroid.type_key == "crystal"
 
-        if not is_debris and not is_small_asteroid:
+        if not is_debris and not is_small_asteroid and not is_crystal:
             return False
 
         dist_sq = (asteroid.x - self.x) ** 2 + (asteroid.y - self.y) ** 2
@@ -459,13 +460,13 @@ class PlayerShip:
 
             if asteroid.marked_for_removal:
                 if hasattr(asteroid, 'type_key') and asteroid.type_key == "destroyer_debris":
-                    # Осколок истребителя — больше и лучше ресурсы
                     self.add_resource("metal", random.randint(10, 15))
                     self.add_resource("precious", random.randint(5, 8))
                     self.add_resource("uranium", random.randint(0, 1))
                     self.add_resource("crystal", random.randint(0, 3))
+                elif hasattr(asteroid, 'type_key') and asteroid.type_key == "crystal":
+                    self.add_resource("crystal", random.randint(5, 10))
                 else:
-                    # Обычный астероид
                     self.add_resource("metal", random.randint(5, 16))
                     self.add_resource("mineral", random.randint(0, 3))
                 self.stop_collection()
