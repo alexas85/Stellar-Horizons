@@ -8,7 +8,7 @@ import random
 from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
 from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
 from game_objects.static_ship import StaticShip
-from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites, get_rocket_sprites, get_explosion_sprites, get_sparks_sprites, get_player_destroyed_sprite, get_drone_sprite, get_scan_sprites
+from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites, get_warden_sprites, get_explosion_sprites, get_player_destroyed_sprite, get_drone_sprite, get_scan_sprites
 from sprites import get_crystal_sprite
 from game_objects.crystal import Crystal
 from game_objects.player import PlayerShip
@@ -18,6 +18,7 @@ from game_objects.station import Station
 from config import RESOURCE_ICONS, REPAIR_COST_PER_PERCENT, REPAIR_RESOURCE_TYPE
 from game_objects.rocket import Rocket
 from game_objects.enemy import DestroyerShip, ScoutShip
+from game_objects.warden import WardenShip
 from sprites import get_rocket_sprites
 from game_objects.explosion import Explosion
 from sprites import get_sparks_sprites
@@ -64,6 +65,7 @@ def main():
     idle_sprite, movement_sprites = get_ship_sprites(4)
     asteroid_sprites = get_asteroid_sprites()
     crystal_sprite = get_crystal_sprite()
+    warden_idle, warden_anim = get_warden_sprites()
 
 
     wreck_path = "assets/ships/class_3/ship_destroyer_destroyer-01_128px_idle.png"
@@ -157,6 +159,9 @@ def main():
     crystals = []
     destroyer_debris_sprites = get_destroyer_debris_sprites()
     scout_debris_sprites = get_scout_debris_sprites()
+    warden_list = []
+    warden_spawned = False
+
 
 
     locked_target = None
@@ -1166,6 +1171,48 @@ def main():
                 obj for obj in current_sector.objects
                 if not (isinstance(obj, SpaceAmoeba) and obj.fully_destroyed)
             ]
+        # --- СПАВН ОРБИТАЛЬНОГО СТРАЖА В КОМНАТЕ (1, 0) ---
+        if room_x == 1 and room_y == 0 and not warden_spawned and not player.on_planet_surface:
+            warden_spawned = True
+
+            room_center_x = 1 * ROOM_WIDTH + ROOM_WIDTH // 2
+            room_center_y = 0 * ROOM_HEIGHT + ROOM_HEIGHT // 2
+
+            dx = room_center_x - player.x
+            dy = room_center_y - player.y
+            dist = math.hypot(dx, dy)
+            if dist > 0:
+                dx /= dist
+                dy /= dist
+
+            spawn_x = room_center_x + dx * (ROOM_WIDTH // 2 + 300)
+            spawn_y = room_center_y + dy * (ROOM_HEIGHT // 2 + 300)
+
+            flight_angle = math.degrees(math.atan2(-dy, -dx))
+
+            warden = WardenShip(
+                x=spawn_x,
+                y=spawn_y,
+                idle_sprite=warden_idle,
+                movement_sprites=warden_anim,
+                direction_angle=flight_angle
+            )
+            warden_list.append(warden)
+            print(f"[DEBUG] Орбитальный страж создан в комнате (1, 0)")
+
+        # --- ОБНОВЛЕНИЕ ОРБИТАЛЬНОГО СТРАЖА ---
+        for warden in warden_list[:]:
+            w_room_x = int(warden.x // ROOM_WIDTH)
+            w_room_y = int(warden.y // ROOM_HEIGHT)
+            w_sector = generator.get_sector(w_room_x, w_room_y, asteroid_sprites,
+                                            wreck_sprite=wreck_sprite, planet_sprite=planet_sprite,
+                                            station_sprite=station_sprite)
+            warden.set_sector(w_sector)
+
+            warden.update(camera_rect=camera)
+            if warden.should_despawn:
+                warden_list.remove(warden)
+                print("[DEBUG] Орбитальный страж исчез (вне поля зрения 15 сек)")
 
         # --- ОБНОВЛЕНИЕ КРИСТАЛЛОВ ---
         for crystal in crystals[:]:
@@ -1315,6 +1362,10 @@ def main():
             # --- ДРОНЫ ---
             for drone in drones:
                 drone.draw(screen, camera)
+
+            # --- ОРБИТАЛЬНЫЙ СТРАЖ ---
+            for warden in warden_list:
+                warden.draw(screen, camera)
 
             # --- ПУЛИ ИСТРЕБИТЕЛЯ ---
             for obj in all_objects:

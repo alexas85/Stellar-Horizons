@@ -128,8 +128,22 @@ def get_destroyer_destroyed_sprite():
     """Загружает спрайт уничтоженного истребителя."""
     return load_image("ships/class_4/destroyer_destroyed.png")
 
+def get_warden_sprites():
+    """Загружает спрайты для орбитального стража из class_2."""
+    folder = "ships/class_2"
 
+    idle_path = f"{folder}/orbital-warden_idle.png"
+    idle = load_image(idle_path)
 
+    movement = []
+    for i in range(1, 4):
+        anim_path = f"{folder}/orbital-warden_anim{i}.png"
+        movement.append(load_image(anim_path))
+
+    if not movement:
+        movement = [idle]
+
+    return idle, movement
 
 
 def get_asteroid_sprites():
