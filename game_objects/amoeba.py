@@ -11,7 +11,8 @@ class SpaceAmoeba:
     Отрисовка полностью процедурная — без спрайтов.
     """
 
-    def __init__(self, x, y, room_left, room_top, room_right, room_bottom):
+    def __init__(self, x, y, room_left, room_top, room_right, room_bottom,
+                 scale_factor=1.0, has_tentacles=True):
         self.x = x
         self.y = y
 
@@ -21,10 +22,12 @@ class SpaceAmoeba:
         self.room_right = room_right
         self.room_bottom = room_bottom
 
-        # Размеры
-        self.base_radius = 80
-        self.absorb_radius = 65
-        self.detection_radius = 300
+        # Размеры (с масштабированием)
+        self.base_radius = 80 * scale_factor
+        self.absorb_radius = 65 * scale_factor
+        self.detection_radius = 300 * scale_factor
+        self.scale_factor = scale_factor
+        self.has_tentacles = has_tentacles
 
         # Движение
         self.velocity_x = 0.0
@@ -55,15 +58,15 @@ class SpaceAmoeba:
         self.num_points = 28
         self.point_phases = [random.uniform(0, 2 * math.pi) for _ in range(self.num_points)]
         self.point_speeds = [random.uniform(0.8, 1.6) for _ in range(self.num_points)]
-        self.point_amps = [random.uniform(8, 22) for _ in range(self.num_points)]
+        self.point_amps = [random.uniform(8, 22) * scale_factor for _ in range(self.num_points)]
 
         # Внутренние ядра
         self.nuclei = []
         for _ in range(random.randint(3, 6)):
             self.nuclei.append({
-                "offset_x": random.uniform(-35, 35),
-                "offset_y": random.uniform(-35, 35),
-                "radius": random.uniform(6, 16),
+                "offset_x": random.uniform(-35, 35) * scale_factor,
+                "offset_y": random.uniform(-35, 35) * scale_factor,
+                "radius": random.uniform(6, 16) * scale_factor,
                 "phase": random.uniform(0, 2 * math.pi),
                 "speed": random.uniform(0.4, 1.0),
             })
@@ -171,26 +174,27 @@ class SpaceAmoeba:
             self.target_dist = math.hypot(tdx, tdy)
             self.target_angle = math.atan2(tdy, tdx)
 
-        # --- ПЛАВНЫЙ ПОВОРОТ, ПРОЯВЛЕНИЕ И ВЫТЯГИВАНИЕ ЩУПАЛЬЦА ---
-        if self.state == "AGGRESSIVE":
-            self.tentacle_angle = self._lerp_angle(
-                self.tentacle_angle, self.target_angle, self.tentacle_angle_speed
-            )
-            if self.target_dist > self.absorb_radius:
-                # Фаза 1: сначала проявляемся, потом вытягиваемся
-                if self.tentacle_alpha < 1.0:
-                    self.tentacle_alpha = min(1.0, self.tentacle_alpha + self.tentacle_fade_speed)
+        # --- ЩУПАЛЬЦА (только если разрешены) ---
+        if self.has_tentacles:
+            if self.state == "AGGRESSIVE":
+                self.tentacle_angle = self._lerp_angle(
+                    self.tentacle_angle, self.target_angle, self.tentacle_angle_speed
+                )
+                if self.target_dist > self.absorb_radius:
+                    if self.tentacle_alpha < 1.0:
+                        self.tentacle_alpha = min(1.0, self.tentacle_alpha + self.tentacle_fade_speed)
+                    else:
+                        self.tentacle_growth = min(1.0, self.tentacle_growth + self.tentacle_growth_speed)
                 else:
-                    self.tentacle_growth = min(1.0, self.tentacle_growth + self.tentacle_growth_speed)
+                    self.tentacle_growth = max(0.0, self.tentacle_growth - self.tentacle_retract_speed)
             else:
-                # Цель в зоне поглощения — втягиваем щупальце
-                self.tentacle_growth = max(0.0, self.tentacle_growth - self.tentacle_retract_speed)
+                if self.tentacle_growth > 0.01:
+                    self.tentacle_growth = max(0.0, self.tentacle_growth - self.tentacle_retract_speed)
+                else:
+                    self.tentacle_alpha = max(0.0, self.tentacle_alpha - self.tentacle_fade_speed)
         else:
-            # Нет цели — сначала втягиваем, потом затухаем
-            if self.tentacle_growth > 0.01:
-                self.tentacle_growth = max(0.0, self.tentacle_growth - self.tentacle_retract_speed)
-            else:
-                self.tentacle_alpha = max(0.0, self.tentacle_alpha - self.tentacle_fade_speed)
+            self.tentacle_alpha = 0.0
+            self.tentacle_growth = 0.0
 
         # --- ДВИЖЕНИЕ ---
         if self.state == "AGGRESSIVE":
@@ -356,7 +360,7 @@ class SpaceAmoeba:
         # --- DYING и ALIVE: тело амёбы ---
 
         # Псевдоподия — только когда живы
-        if self.tentacle_alpha > 0.01 and self.death_state == "ALIVE":
+        if self.tentacle_alpha > 0.01 and self.death_state == "ALIVE" and self.has_tentacles:
             if self.current_target and self.target_dist > self.absorb_radius:
                 max_len = min(self.target_dist * 0.8, 250)
             else:

@@ -3,6 +3,7 @@ from .sector import Sector
 from config import ROOM_WIDTH, ROOM_HEIGHT
 from game_objects.amoeba import SpaceAmoeba
 import random
+import math
 
 
 
@@ -54,6 +55,39 @@ class WorldGenerator:
                 )
                 sector.objects.append(amoeba)
                 amoeba.set_sector(sector)
+            # Мелкие амёбы без щупалец в комнате (0, -2)
+            if x == 0 and y == -2:
+                amoeba_count = random.randint(10, 30)
+                spawned = 0
+                for _ in range(amoeba_count):
+                    margin = 30
+                    ax = random.randint(margin, ROOM_WIDTH - margin)
+                    ay = random.randint(-2 * ROOM_HEIGHT + margin, -ROOM_HEIGHT - margin)
+
+                    too_close = False
+                    for obj in sector.objects:
+                        if isinstance(obj, SpaceAmoeba):
+                            if math.hypot(ax - obj.x, ay - obj.y) < 50:
+                                too_close = True
+                                break
+
+                    if not too_close:
+                        small_amoeba = SpaceAmoeba(
+                            x=ax,
+                            y=ay,
+                            room_left=0,
+                            room_top=-2 * ROOM_HEIGHT,
+                            room_right=ROOM_WIDTH,
+                            room_bottom=-ROOM_HEIGHT,
+                            scale_factor=0.2,       # в 5 раз меньше
+                            has_tentacles=False,    # без щупалец
+                        )
+                        small_amoeba.set_sector(sector)
+                        sector.objects.append(small_amoeba)
+                        spawned += 1
+
+                print(f"[DEBUG] Комната (0,-2): заспавнено {spawned} мелких амеб (планировалось {amoeba_count})")
+
 
             self.sectors[key] = sector
 

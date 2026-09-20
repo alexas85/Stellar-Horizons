@@ -39,21 +39,67 @@ class Sector:
             self.is_generated = True
             return
 
-        # --- СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ КОМНАТЫ (1, 1): хаотичные mod04 ---
-        if self.x == 1 and self.y == 1:
-            # Фильтруем только mod04
+        # --- ПОЛЕ АСТЕРОИДОВ mod04 (плотное скопление) ---
+        ASTEROID_FIELD_ROOMS = {(1, 1), (2, 1), (3, 1), (1, 2), (3, 2), (1, 3), (2, 3), (3, 3)}
+        DENSE_ROOM = (2, 2)
+
+        if (self.x, self.y) in ASTEROID_FIELD_ROOMS or (self.x, self.y) == DENSE_ROOM:
             mod04_items = [item for item in items if "mod04" in item[0]]
 
+            # --- АМЁБЫ В КОМНАТЕ (2,2) ---
+            if (self.x, self.y) == (2, 2):
+                from game_objects.amoeba import SpaceAmoeba
+
+                amoeba_count = random.randint(7, 20)
+                spawned = 0
+
+                for _ in range(amoeba_count):
+                    margin = 100
+                    ax = (self.x * ROOM_WIDTH) + random.randint(margin, ROOM_WIDTH - margin)
+                    ay = (self.y * ROOM_HEIGHT) + random.randint(margin, ROOM_HEIGHT - margin)
+
+                    # Проверка: не слишком ли близко к другому объекту
+                    too_close = False
+                    for existing in self.asteroids:
+                        if math.hypot(ax - existing.x, ay - existing.y) < 120:
+                            too_close = True
+                            break
+                    if not too_close:
+                        for obj in self.objects:
+                            if isinstance(obj, SpaceAmoeba):
+                                if math.hypot(ax - obj.x, ay - obj.y) < 160:
+                                    too_close = True
+                                    break
+
+                    if not too_close:
+                        new_amoeba = SpaceAmoeba(
+                            x=ax,
+                            y=ay,
+                            room_left=self.x * ROOM_WIDTH,
+                            room_top=self.y * ROOM_HEIGHT,
+                            room_right=(self.x + 1) * ROOM_WIDTH,
+                            room_bottom=(self.y + 1) * ROOM_HEIGHT,
+                        )
+                        new_amoeba.set_sector(self)
+                        self.objects.append(new_amoeba)
+                        spawned += 1
+
+                print(f"[DEBUG] Комната (2,2): заспавнено {spawned} амеб (планировалось {amoeba_count})")
+
             if not mod04_items:
-                print("[WARN] Нет спрайтов mod04 для комнаты (1,1)")
+                print(f"[WARN] Нет спрайтов mod04 для комнаты ({self.x},{self.y})")
             else:
-                for _ in range(total_count):
+                room_count = total_count
+                if (self.x, self.y) == DENSE_ROOM:
+                    room_count = total_count * 2  # 2x плотность в центре скопления
+                    print(f"[DEBUG] Комната (2,2): плотность x2 ({room_count} астероидов)")
+
+                for _ in range(room_count):
                     ax = (self.x * ROOM_WIDTH) + random.randint(0, ROOM_WIDTH - 64)
                     ay = (self.y * ROOM_HEIGHT) + random.randint(0, ROOM_HEIGHT - 64)
 
                     collision = False
                     for existing in self.asteroids:
-                        # Используем размер существующего астероида для проверки коллизии
                         min_dist = max(existing.size_px // 2, 32)
                         if math.hypot(ax - existing.x, ay - existing.y) < min_dist * 2:
                             collision = True
@@ -62,8 +108,6 @@ class Sector:
                     if not collision:
                         sprite_key, (sprite, size_px) = random.choice(mod04_items)
                         rot_speed = random.uniform(-0.02, 0.02)
-
-                        # РАССЧИТЫВАЕМ МАССУ
                         mass = self.calculate_mass(size_px)
 
                         new_asteroid = Asteroid(
@@ -76,13 +120,14 @@ class Sector:
                             orbit_speed=0,
                             size_px=size_px,
                             type_key=sprite_key,
-                            mass=mass  # <--- ПЕРЕДАЁМ МАССУ
+                            mass=mass
                         )
                         self.asteroids.append(new_asteroid)
 
             self.is_generated = True
-            print(f"[DEBUG] Комната (1,1): сгенерировано {len(self.asteroids)} астероидов mod04")
+            print(f"[DEBUG] Комната ({self.x},{self.y}): сгенерировано {len(self.asteroids)} астероидов mod04")
             return
+
         # --- СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ КОМНАТЫ (0, 1): широкий пучок ---
         if self.x == 0 and self.y == 1:
             room_center_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
