@@ -67,8 +67,7 @@ def main():
     crystal_sprite = get_crystal_sprite()
     warden_idle, warden_anim = get_warden_sprites()
 
-
-    wreck_path = "assets/ships/class_3/ship_destroyer_destroyer-01_128px_idle.png"
+    wreck_path = "assets/ships/class_3/destroyer_128px_idle.png"
     wreck_sprite = None
     try:
         wreck_sprite = pygame.image.load(wreck_path).convert_alpha()
