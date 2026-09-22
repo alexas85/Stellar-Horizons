@@ -19,7 +19,7 @@ from config import RESOURCE_ICONS, REPAIR_COST_PER_PERCENT, REPAIR_RESOURCE_TYPE
 from game_objects.rocket import Rocket
 from game_objects.enemy import DestroyerShip, ScoutShip
 from game_objects.warden import WardenShip
-from sprites import get_rocket_sprites
+from sprites import get_rocket_sprites,get_orbital_warden_debris_sprites
 from game_objects.explosion import Explosion
 from sprites import get_sparks_sprites
 from game_objects.drone import ScanDrone, RepairDrone
@@ -158,6 +158,10 @@ def main():
     crystals = []
     destroyer_debris_sprites = get_destroyer_debris_sprites()
     scout_debris_sprites = get_scout_debris_sprites()
+    # Загрузка осколков Орбитального Стража (19 штук)
+    orbital_warden_debris_sprites = get_orbital_warden_debris_sprites()
+    print(f"[INIT] Загружено {len(orbital_warden_debris_sprites)} спрайтов осколков Orbital Warden")
+
     warden_list = []
     warden_spawned = False
 
@@ -1117,12 +1121,16 @@ def main():
                 if not was_destroyed and target.is_destroyed:
                     debris_sprites = []
 
-                    if isinstance(target, DestroyerShip) and destroyer_debris_sprites:
+                    if isinstance(target, WardenShip) and orbital_warden_debris_sprites:
+                        # Для Стража используем его уникальные 19 осколков
+                        debris_sprites = orbital_warden_debris_sprites
+                        print("[ACTION] Орбитальный страж разрушен на осколки!")
+
+                    elif isinstance(target, DestroyerShip) and destroyer_debris_sprites:
                         debris_sprites = destroyer_debris_sprites
-                        print("[ACTION] Истребитель разрушен на осколки")
+
                     elif isinstance(target, ScoutShip) and scout_debris_sprites:
                         debris_sprites = scout_debris_sprites
-                        print("[ACTION] Разведчик разрушен на осколки")
 
                     if debris_sprites:
                         for debris_sprite in debris_sprites:
@@ -1243,8 +1251,16 @@ def main():
             # Уничтожение стража — взрыв + удаление
             if warden.is_destroyed:
                 explosions.append(Explosion(warden.x, warden.y, explosion_sprites))
+
+                # Спавним 19 осколков Орбитального Стража
+                if orbital_warden_debris_sprites:
+                    for debris_sprite in orbital_warden_debris_sprites:
+                        debris = ShipDebris(warden.x, warden.y, debris_sprite)
+                        debris_list.append(debris)
+                    print(
+                        f"[ACTION] Орбитальный страж разрушен при таране — {len(orbital_warden_debris_sprites)} осколков добавлено")
+
                 warden_list.remove(warden)
-                print("[DEBUG] Орбитальный страж уничтожен при таране!")
                 continue
 
             if warden.should_despawn:

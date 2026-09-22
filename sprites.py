@@ -207,6 +207,14 @@ def get_scout_debris_sprites():
         path = f"ships/class_4/scout_debris_{i}.png"
         sprites.append(load_image(path))
     return sprites
+def get_orbital_warden_debris_sprites():
+    """Загружает 19 спрайтов осколков орбитального стража."""
+    sprites = []
+    for i in range(1, 20):
+        path = f"ships/debris/orbitalWarden_debris_{i:02d}.png"
+        sprites.append(load_image(path))
+    return sprites
+
 def get_crystal_sprite():
     return load_image("resources/crystal.png")
 def get_wreck_repair_sprites():
