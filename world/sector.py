@@ -312,6 +312,7 @@ class Sector:
                 self.objects.append(debris)
 
             print(f"[DEBUG] Quick Shuttle: {len(debris_sprites)} осколков добавлено в комнату ({self.x}, {self.y})")
+
         # --- ОСКОЛКИ ORBITAL WARDEN В КОМНАТЕ (3, 0) ---
         if self.x == 3 and self.y == 0:
             from sprites import get_orbital_warden_debris_sprites
@@ -326,6 +327,21 @@ class Sector:
                 self.objects.append(debris)
 
             print(f"[DEBUG] Orbital Warden: {len(warden_debris_sprites)} осколков добавлено в комнату ({self.x}, {self.y})")
+
+        # --- PRE-PLACED DEBRIS: FREIGHT VANGUARD В КОМНАТЕ (3, 0) ---
+        if self.x == 3 and self.y == 0:
+            from sprites import get_freight_vanguard_debris_sprites
+
+            freight_debris_sprites = get_freight_vanguard_debris_sprites()
+
+            spawn_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2) - 300
+            spawn_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2) + 200
+
+            for debris_sprite in freight_debris_sprites:
+                debris = ShipDebris(spawn_x, spawn_y, debris_sprite)
+                self.objects.append(debris)
+
+            print(f"[DEBUG] Freight Vanguard: {len(freight_debris_sprites)} осколков добавлено в комнату ({self.x}, {self.y})")
 
         # --- СТАНЦИЯ В КОМНАТЕ (-1, 1) ---
         if station_sprite and self.x == -1 and self.y == 1:

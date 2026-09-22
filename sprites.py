@@ -215,6 +215,15 @@ def get_orbital_warden_debris_sprites():
         sprites.append(load_image(path))
     return sprites
 
+def get_freight_vanguard_debris_sprites():
+    """Загружает 19 спрайтов осколков грузового корабля Freight Vanguard."""
+    sprites = []
+    for i in range(1, 20):
+        path = f"ships/debris/freightVanguard_debris_{i:02d}.png"
+        sprites.append(load_image(path))
+    return sprites
+
+
 def get_crystal_sprite():
     return load_image("resources/crystal.png")
 def get_wreck_repair_sprites():
