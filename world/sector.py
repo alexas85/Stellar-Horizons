@@ -6,6 +6,8 @@ from game_objects.static_ship import StaticShip
 from game_objects.static_planet import StaticPlanet
 from game_objects.station import Station
 from config import ROOM_WIDTH, ROOM_HEIGHT
+from game_objects.debris import ShipDebris
+
 
 
 class Sector:
@@ -198,11 +200,15 @@ class Sector:
             print(f"[DEBUG] Комната (0,1): сгенерировано {len(self.asteroids)} астероидов в пучке R=400")
             return
 
-
         # --- ОБЫЧНАЯ ЛОГИКА (все остальные комнаты) ---
         cluster_count = random.randint(6, 8)
         room_center_x = self.x * ROOM_WIDTH + ROOM_WIDTH // 2
         room_center_y = self.y * ROOM_HEIGHT + ROOM_HEIGHT // 2
+
+        # --- СМЕЩЕНИЕ АСТЕРОИДОВ В КОМНАТЕ (3, 0) ---
+        if self.x == 3 and self.y == 0:
+            room_center_x += 1000
+            room_center_y += 800
 
         for _ in range(cluster_count):
             remaining = total_count - len(self.asteroids)
@@ -297,51 +303,60 @@ class Sector:
             self.objects.append(destroyer)
             print(f"[DEBUG] Истребитель добавлен в комнату ({self.x}, {self.y})")
 
-        # --- ОСКОЛКИ QUICK SHUTTLE В КОМНАТЕ (3, 0) ---
+        # --- PRE-PLACED DEBRIS: QUICK SHUTTLE В КОМНАТЕ (3, 0) ---
         if self.x == 3 and self.y == 0:
-            from game_objects.debris import ShipDebris
             from sprites import get_quick_shuttle_debris_sprites
 
+            base_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2)
+            base_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2)
+
             debris_sprites = get_quick_shuttle_debris_sprites()
-
-            spawn_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2)
-            spawn_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2)
-
             for debris_sprite in debris_sprites:
-                debris = ShipDebris(spawn_x, spawn_y, debris_sprite)
+                # Случайный разброс ±120 пикселей вокруг центра
+                offset_x = random.randint(-120, 120)
+                offset_y = random.randint(-120, 120)
+                debris = ShipDebris(base_x + offset_x, base_y + offset_y, debris_sprite)
                 self.objects.append(debris)
 
-            print(f"[DEBUG] Quick Shuttle: {len(debris_sprites)} осколков добавлено в комнату ({self.x}, {self.y})")
+            print(f"[DEBUG] Quick Shuttle: {len(debris_sprites)} осколков разбросано в комнате ({self.x}, {self.y})")
 
-        # --- ОСКОЛКИ ORBITAL WARDEN В КОМНАТЕ (3, 0) ---
+        # --- PRE-PLACED DEBRIS: ORBITAL WARDEN В КОМНАТЕ (3, 0) ---
         if self.x == 3 and self.y == 0:
             from sprites import get_orbital_warden_debris_sprites
 
+            # Смещение: правее и выше центра
+            base_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2) + 400
+            base_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2) - 300
+
             warden_debris_sprites = get_orbital_warden_debris_sprites()
-
-            spawn_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2) + 300
-            spawn_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2) - 200
-
             for debris_sprite in warden_debris_sprites:
-                debris = ShipDebris(spawn_x, spawn_y, debris_sprite)
+                # Разброс ±180 пикселей — группа будет крупнее
+                offset_x = random.randint(-180, 180)
+                offset_y = random.randint(-180, 180)
+                debris = ShipDebris(base_x + offset_x, base_y + offset_y, debris_sprite)
                 self.objects.append(debris)
 
-            print(f"[DEBUG] Orbital Warden: {len(warden_debris_sprites)} осколков добавлено в комнату ({self.x}, {self.y})")
+            print(
+                f"[DEBUG] Orbital Warden: {len(warden_debris_sprites)} осколков разбросано в комнате ({self.x}, {self.y})")
 
         # --- PRE-PLACED DEBRIS: FREIGHT VANGUARD В КОМНАТЕ (3, 0) ---
         if self.x == 3 and self.y == 0:
             from sprites import get_freight_vanguard_debris_sprites
 
+            # Смещение: левее и ниже центра
+            base_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2) - 400
+            base_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2) + 300
+
             freight_debris_sprites = get_freight_vanguard_debris_sprites()
-
-            spawn_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2) - 300
-            spawn_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2) + 200
-
             for debris_sprite in freight_debris_sprites:
-                debris = ShipDebris(spawn_x, spawn_y, debris_sprite)
+                # Разброс ±180 пикселей
+                offset_x = random.randint(-180, 180)
+                offset_y = random.randint(-180, 180)
+                debris = ShipDebris(base_x + offset_x, base_y + offset_y, debris_sprite)
                 self.objects.append(debris)
 
-            print(f"[DEBUG] Freight Vanguard: {len(freight_debris_sprites)} осколков добавлено в комнату ({self.x}, {self.y})")
+            print(
+                f"[DEBUG] Freight Vanguard: {len(freight_debris_sprites)} осколков разбросано в комнате ({self.x}, {self.y})")
 
         # --- СТАНЦИЯ В КОМНАТЕ (-1, 1) ---
         if station_sprite and self.x == -1 and self.y == 1:
