@@ -25,7 +25,6 @@ from sprites import get_sparks_sprites
 from game_objects.drone import ScanDrone, RepairDrone
 from game_objects.amoeba import SpaceAmoeba
 from game_objects.debris import ShipDebris
-from game_objects.quick_shuttle import QuickShuttle
 from sprites import get_destroyer_debris_sprites, get_scout_debris_sprites
 from ui_config import HUD_NEON, HUD_GLOW, HUD_TEXT, HUD_BG_ALPHA, HUD_BORDER_WIDTH, HUD_GAP, HUD_NOISE_INTENSITY, HUD_NOISE_LINE_ALPHA, HUD_GLOW_OVERLAY_ALPHA
 
@@ -979,6 +978,14 @@ def main():
 
             current_sector = generator.get_sector(room_x, room_y, asteroid_sprites, wreck_sprite=wreck_sprite,
                                                   planet_sprite=planet_sprite, station_sprite=station_sprite)
+            # --- ПЕРЕНОС ОСКОЛКОВ QUICK SHUTTLE ИЗ sector.objects В debris_list ---
+            if current_sector and current_sector.objects:
+                for obj in current_sector.objects[:]:
+                    if isinstance(obj, ShipDebris):
+                        debris_list.append(obj)
+                        current_sector.objects.remove(obj)
+                        print(f"[DEBUG] Осколок Quick Shuttle перенесён в debris_list")
+
 
             if current_sector and current_sector.asteroids:
                 check_objects = current_sector.asteroids
@@ -1127,18 +1134,6 @@ def main():
                 rockets.remove(rocket)
             elif not rocket.is_active():
                 rockets.remove(rocket)
-
-        # --- ПРОВЕРКА QUICK SHUTTLE И РАЗЛЁТ ОСКОЛКОВ ---
-        for obj in current_sector.objects[:]:  # [:] — копия списка, чтобы безопасно удалять элементы
-            if isinstance(obj, QuickShuttle) and not obj.is_triggered:
-                # Проверяем дистанцию до игрока
-                if obj.check_proximity(player.x, player.y):
-                    # Создаём осколки
-                    debris_list.extend(obj.spawn_debris())
-                    # Удаляем челнок из списка объектов сектора
-                    current_sector.objects.remove(obj)
-                    print(
-                        f"[ACTION] Quick Shuttle в комнате ({current_sector.x}, {current_sector.y}) уничтожен — осколки добавлены")
 
         # --- ОБНОВЛЕНИЕ ВЗРЫВОВ ---
         for exp in explosions[:]:

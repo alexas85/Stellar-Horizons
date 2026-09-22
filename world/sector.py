@@ -297,27 +297,21 @@ class Sector:
             self.objects.append(destroyer)
             print(f"[DEBUG] Истребитель добавлен в комнату ({self.x}, {self.y})")
 
-        # --- QUICK SHUTTLE В КОМНАТЕ (3, 0) ---
+        # --- ОСКОЛКИ QUICK SHUTTLE В КОМНАТЕ (3, 0) ---
         if self.x == 3 and self.y == 0:
-            from game_objects.quick_shuttle import QuickShuttle
-            from sprites import get_quick_shuttle_idle_sprite, get_quick_shuttle_debris_sprites
+            from game_objects.debris import ShipDebris
+            from sprites import get_quick_shuttle_debris_sprites
 
-            idle_sprite = get_quick_shuttle_idle_sprite()
             debris_sprites = get_quick_shuttle_debris_sprites()
 
             spawn_x = (self.x * ROOM_WIDTH) + (ROOM_WIDTH // 2)
             spawn_y = (self.y * ROOM_HEIGHT) + (ROOM_HEIGHT // 2)
 
-            shuttle = QuickShuttle(
-                sprite=idle_sprite,
-                x=spawn_x,
-                y=spawn_y,
-                debris_sprites=debris_sprites,
-                angle=0.0
-            )
-            self.objects.append(shuttle)
-            print(f"[DEBUG] Quick Shuttle добавлен в комнату ({self.x}, {self.y})")
+            for debris_sprite in debris_sprites:
+                debris = ShipDebris(spawn_x, spawn_y, debris_sprite)
+                self.objects.append(debris)
 
+            print(f"[DEBUG] Quick Shuttle: {len(debris_sprites)} осколков добавлено в комнату ({self.x}, {self.y})")
 
         # --- СТАНЦИЯ В КОМНАТЕ (-1, 1) ---
         if station_sprite and self.x == -1 and self.y == 1:
