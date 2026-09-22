@@ -145,6 +145,19 @@ def get_warden_sprites():
 
     return idle, movement
 
+def get_quick_shuttle_debris_sprites():
+    """Загружает 10 спрайтов осколков Quick Shuttle."""
+    sprites = []
+    for i in range(1, 11):
+        path = f"ships/debris/quickShuttle_debris_{i:02d}.png"
+        sprites.append(load_image(path))
+    return sprites
+
+def get_quick_shuttle_idle_sprite():
+    """Загружает idle-спрайт Quick Shuttle из class_3."""
+    return load_image("ships/class_3/quickShuttle_idle.png")
+
+
 
 def get_asteroid_sprites():
     """Загружает спрайты астероидов и возвращает словарь: key -> (sprite, size_px)"""

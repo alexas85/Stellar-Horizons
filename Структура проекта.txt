@@ -11,6 +11,7 @@ StellarHorizons/
 │ ├── planet.py
 │ ├── static_planet.py
 │ ├── static_ship.py
+│ ├── quick_shuttle.py
 │ ├── station.py
 │ ├── bullet.py
 │ ├── drone.py
