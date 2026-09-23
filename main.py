@@ -31,7 +31,7 @@ from ui_config import HUD_NEON, HUD_GLOW, HUD_TEXT, HUD_BG_ALPHA, HUD_BORDER_WID
 
 from game_objects.bullet import Bullet
 
-
+CAMERA_SPEED = 0.10  # Чем меньше число, тем плавнее (0.05 - очень медленно, 0.5 - почти мгновенно)
 def draw_hud(screen, player, font, resource_surfaces, start_x, y_offset=20):
     x = start_x
     y = y_offset
@@ -1291,14 +1291,25 @@ def main():
         crystals = [c for c in crystals if not c.marked_for_removal]
 
         # Движение камеры
+        # Внутри цикла while running, вместо прямого присваивания:
         if player.on_planet_surface:
-            target_x = max(0, min(player.x - CAMERA_WIDTH // 2, PLANET_ROOM_WIDTH - CAMERA_WIDTH))
-            target_y = max(0, min(player.y - CAMERA_HEIGHT // 2, PLANET_ROOM_HEIGHT - CAMERA_HEIGHT))
-            camera.topleft = (target_x, target_y)
+            target_x = player.x - CAMERA_WIDTH // 2
+            target_y = player.y - CAMERA_HEIGHT // 2
+
+            # Ограничиваем целевые координаты границами комнаты
+            target_x = max(0, min(target_x, PLANET_ROOM_WIDTH - CAMERA_WIDTH))
+            target_y = max(0, min(target_y, PLANET_ROOM_HEIGHT - CAMERA_HEIGHT))
+
+            # Плавно интерполируем текущую позицию камеры к целевой
+            camera.x += (target_x - camera.x) * CAMERA_SPEED
+            camera.y += (target_y - camera.y) * CAMERA_SPEED
         else:
             target_x = player.x - CAMERA_WIDTH // 2
             target_y = player.y - CAMERA_HEIGHT // 2
-            camera.topleft = (target_x, target_y)
+
+            # В космосе тоже можно сделать плавность, если нужно
+            camera.x += (target_x - camera.x) * CAMERA_SPEED
+            camera.y += (target_y - camera.y) * CAMERA_SPEED
 
         # --- ОТРИСОВКА ---
         if player.on_planet_surface:
