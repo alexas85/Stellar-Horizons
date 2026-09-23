@@ -202,7 +202,7 @@ def main():
     storage_withdraw_rects = {}
     storage_switch_rect = pygame.Rect(0, 0, 0, 0)
     storage_repair_switch_rect = pygame.Rect(0, 0, 0, 0)
-
+    pilot_button_rect = pygame.Rect(0, 0, 0, 0)
 
     btn_w, btn_h = 240, 36
     cx_ui = CAMERA_WIDTH // 2
@@ -779,6 +779,12 @@ def main():
                                 ui_target_sector.objects.remove(wreck)
                             ui_active = False
                             print("[ACTION] Обломок разобран на ресурсы")
+
+                        # --- НОВАЯ ЛОГИКА: КНОПКА "СЕСТЬ ЗА ШТУРВАЛ" ---
+                        elif pilot_button_rect.collidepoint(event.pos) and pilot_button_rect.width > 0:
+                            print("[ACTION] НАЖАТА КНОПКА 'СЕСТЬ ЗА ШТУРВАЛ'!")
+                        # Здесь будет основная логика пересадки. Пока просто выводим в консоль.
+                        # Например: player.enter_ship(ui_target_wreck)
 
                         elif storage_switch_rect.collidepoint(event.pos) and ui_target_wreck.is_habitable:
                             ui_mode = "storage"
@@ -1474,27 +1480,24 @@ def main():
                         h_btn_w, h_btn_h = 180, 30
                         h_base_x = wreck_sx + 60
                         h_base_y = wreck_sy - h_btn_h - 4
-
                         scan_button_rect = pygame.Rect(h_base_x, h_base_y, h_btn_w, h_btn_h)
                         disassemble_button_rect = pygame.Rect(h_base_x, h_base_y + h_btn_h + HUD_GAP, h_btn_w, h_btn_h)
-
                         draw_hologram_button(screen, "СКАНИРОВАНИЕ",
                                              h_base_x, h_base_y, h_btn_w, h_btn_h, h_time)
                         draw_hologram_button(screen, "РАЗОБРАТЬ",
                                              h_base_x, h_base_y + h_btn_h + HUD_GAP,
                                              h_btn_w, h_btn_h, h_time)
-
                     else:
                         # --- ЭТАП 2: отчёт сканирования ---
                         h_base_x = wreck_sx + 60
                         h_base_y = wreck_sy - 80
-
                         last_btn_y = draw_hologram_scan_report(
                             screen, ui_target_wreck.ship_name,
                             ui_target_wreck.modules,
                             h_base_x, h_base_y, h_time, module_buttons_rects
                         )
-
+                        # --- КНОПКА "РАЗОБРАТЬ НА РЕСУРСЫ" ---
+                        # --- КНОПКА "РАЗОБРАТЬ НА РЕСУРСЫ" ---
                         h_btn_w, h_btn_h = 200, 30
                         disassemble_button_rect = pygame.Rect(
                             h_base_x, last_btn_y + HUD_GAP, h_btn_w, h_btn_h
@@ -1505,15 +1508,33 @@ def main():
                                              h_base_x, last_btn_y + HUD_GAP,
                                              h_btn_w, h_btn_h, h_time)
 
-                        # Кнопка "СКЛАД" если Корпус отремонтирован
+                        # --- КНОПКА "СЕСТЬ ЗА ШТУРВАЛ" ---
+                        # Проверяем точные ключи: "Корпус" и "Двигатель"
+                        hull_ok = ui_target_wreck.modules.get("Корпус", 0) >= 100
+                        engines_ok = ui_target_wreck.modules.get("Двигатель", 0) >= 30
+
+                        pilot_button_rect = pygame.Rect(0, 0, 0, 0)  # Сброс по умолчанию
+                        pilot_y = 0
+
+                        if hull_ok and engines_ok:
+                            pilot_y = last_btn_y + HUD_GAP + h_btn_h + HUD_GAP
+                            pilot_button_rect = pygame.Rect(h_base_x, pilot_y, h_btn_w, h_btn_h)
+                            draw_hologram_button(screen, "СЕСТЬ ЗА ШТУРВАЛ",
+                                                 h_base_x, pilot_y, h_btn_w, h_btn_h, h_time)
+
+                        # --- КНОПКА "СКЛАД" ---
+                        storage_switch_rect = pygame.Rect(0, 0, 0, 0)  # Сброс по умолчанию
+
                         if ui_target_wreck.is_habitable:
-                            sw_w, sw_h = 200, 30
                             sw_y = last_btn_y + HUD_GAP + h_btn_h + HUD_GAP
-                            storage_switch_rect = pygame.Rect(h_base_x, sw_y, sw_w, sw_h)
+
+                            # Если кнопка пилота есть, сдвигаем склад ниже неё
+                            if pilot_button_rect.width > 0:
+                                sw_y += h_btn_h + HUD_GAP
+
+                            storage_switch_rect = pygame.Rect(h_base_x, sw_y, h_btn_w, h_btn_h)
                             draw_hologram_button(screen, "СКЛАД",
-                                                 h_base_x, sw_y, sw_w, sw_h, h_time)
-                        else:
-                            storage_switch_rect = pygame.Rect(0, 0, 0, 0)
+                                                 h_base_x, sw_y, h_btn_w, h_btn_h, h_time)
 
                     # --- ОТРИСОВКА МЕНЮ РЕМОНТА (если активно) ---
                     if repair_menu_active and repair_target_module:
