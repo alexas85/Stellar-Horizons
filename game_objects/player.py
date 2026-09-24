@@ -96,6 +96,11 @@ class PlayerShip:
         self.collection_start_time = 0.0
         self.is_collecting = False
 
+        self.is_boarded = False  # Игрок сейчас внутри обломка?
+        self.boarded_wreck = None  # Ссылка на объект обломка
+        self.saved_idle_sprite = None  # Чтобы вернуть свой спрайт при выходе
+        self.saved_movement_sprites = None
+
     def rotate(self, direction):
         target_angular_velocity = direction * self.max_angular_velocity
         if abs(self.angular_velocity - target_angular_velocity) < self.turn_acceleration:
@@ -597,3 +602,61 @@ class PlayerShip:
 
             pygame.draw.line(surface, (255, 255, 255), (draw_x, draw_y), (tx, ty), 3)
             pygame.draw.circle(surface, (255, 255, 255), (int(tx), int(ty)), 6, 2)
+
+    def board_wreck(self, wreck_obj):
+        """Игрок садится в обломок"""
+        if self.is_boarded:
+            return
+
+        self.is_boarded = True
+        self.boarded_wreck = wreck_obj
+
+        # 1. Передаем текущую скорость и вращение обломку
+        wreck_obj.velocity = self.velocity.copy()
+        wreck_obj.angular_velocity = self.angular_velocity
+        wreck_obj.angle = self.angle
+
+        # 2. Сохраняем свои спрайты, чтобы вернуть их потом
+        self.saved_idle_sprite = self.idle_sprite
+        self.saved_movement_sprites = self.movement_sprites
+
+        # 3. Визуальный трюк:
+        # Мы НЕ меняем спрайты местами. Мы просто заставляем обломок выглядеть как игрок.
+        # Так как в main.py мы перестанем рисовать player, а wreck будет рисовать свой спрайт,
+        # нам нужно сказать wreck'у: "Рисуй спрайт игрока".
+        wreck_obj._base_sprite = self.idle_sprite
+        wreck_obj._original_sprite = self.idle_sprite
+        wreck_obj.sprite = self.idle_sprite
+
+        # Если у wreck есть анимация двигателей, её тоже можно подменить,
+        # но для начала хватит смены _base_sprite.
+
+        print(f"[BOARDING] Игрок сел в {wreck_obj.ship_name}")
+
+    def leave_wreck(self):
+        """Игрок покидает обломок"""
+        if not self.is_boarded or self.boarded_wreck is None:
+            return
+
+        wreck = self.boarded_wreck
+
+        # 1. Забираем физику обратно
+        self.velocity = wreck.velocity.copy()
+        self.angular_velocity = wreck.angular_velocity
+        self.angle = wreck.angle
+        self.x = wreck.x
+        self.y = wreck.y
+
+        # 2. Возвращаем свои спрайты
+        self.idle_sprite = self.saved_idle_sprite
+        self.movement_sprites = self.saved_movement_sprites
+        self.original_image = self.idle_sprite
+
+        # 3. Сбрасываем состояние
+        self.is_boarded = False
+        self.boarded_wreck = None
+
+        # Опционально: сбросить скорость обломка, чтобы он не улетел, пока стоит пустым
+        # wreck.velocity = pygame.math.Vector2(0, 0)
+
+        print("[LEAVE] Игрок вернулся в свой корабль")

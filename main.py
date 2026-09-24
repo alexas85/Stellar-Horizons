@@ -594,6 +594,11 @@ def main():
 
 
     while running:
+        # 1. Получаем позицию мыши (ИСПРАВЛЕНИЕ ОШИБКИ)
+        mouse_pos = pygame.mouse.get_pos()
+
+        # 2. Получаем время для эффектов UI
+        time_offset = pygame.time.get_ticks() / 1000.0
 
         # 1. Обработка событий
         for event in pygame.event.get():
@@ -781,8 +786,20 @@ def main():
                             print("[ACTION] Обломок разобран на ресурсы")
 
                         # --- НОВАЯ ЛОГИКА: КНОПКА "СЕСТЬ ЗА ШТУРВАЛ" ---
-                        elif pilot_button_rect.collidepoint(event.pos) and pilot_button_rect.width > 0:
-                            print("[ACTION] НАЖАТА КНОПКА 'СЕСТЬ ЗА ШТУРВАЛ'!")
+                        # --- ОБРАБОТКА КНОПКИ "СЕСТЬ ЗА ШТУРВАЛ" ---
+                        if ui_active and ui_target_wreck and pilot_button_rect.collidepoint(mouse_pos):
+                            # Проверка условий (Корпус >= 100, Двигатель >= 30)
+                            hull_ok = ui_target_wreck.modules.get("Корпус", 0) >= 100
+                            engines_ok = ui_target_wreck.modules.get("Двигатель", 0) >= 30
+
+                            if hull_ok and engines_ok:
+                                player.board_wreck(ui_target_wreck)
+                                ui_active = False
+                                ui_target_wreck = None
+                                print("Игрок успешно пересел!")
+                            else:
+                                print("Недостаточно модулей для управления!")
+                            continue
                         # Здесь будет основная логика пересадки. Пока просто выводим в консоль.
                         # Например: player.enter_ship(ui_target_wreck)
 
@@ -808,6 +825,32 @@ def main():
         if not paused:
             # --- ЛОГИКА КНОПКИ ДЕЙСТВИЯ (E) ---
             interaction_target = None
+            # ОПРЕДЕЛЯЕМ, КТО СЕЙЧАС УПРАВЛЯЕТСЯ
+            if player.is_boarded and player.boarded_wreck:
+                active_ship = player.boarded_wreck
+            else:
+                active_ship = player
+
+            # Применяем ввод к активному кораблю
+            if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+                active_ship.rotate(-1)
+            if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+                active_ship.rotate(1)
+            if keys[pygame.K_UP] or keys[pygame.K_w]:
+                active_ship.accelerate()
+
+            # Стрельба (важно: метод shoot должен быть у обоих классов!)
+            # Если у StaticShip нет метода shoot, скопируй логику из PlayerShip или оставь только для игрока
+            if keys[pygame.K_SPACE]:
+                if hasattr(active_ship, 'shoot'):
+                    active_ship.shoot(bullet_sprite)
+                elif active_ship == player:
+                    player.shoot(bullet_sprite)
+
+            # Выход из обломка (клавиша E)
+            if player.is_boarded and player.boarded_wreck:
+                if keys[pygame.K_e]:
+                    player.leave_wreck()
 
         if (not ui_active and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and
                 keys[pygame.K_e]):
@@ -1348,6 +1391,7 @@ def main():
                         obj.update(target=player)
                     else:
                         obj.update()
+                obj.update()
 
                 show_highlight = False
                 if (hasattr(obj, 'x') and hasattr(obj, 'y') and hasattr(obj, 'highlight_radius')):
@@ -1563,7 +1607,15 @@ def main():
                         )
 
             # ОТРИСОВКА ИГРОКА
-            player.draw(screen, camera.topleft, interaction_target=interaction_target)
+            # --- ИСПРАВЛЕНИЕ ОТРИСОВКИ ИГРОКА ---
+            # Рисуем игрока ТОЛЬКО если он НЕ на борту
+            if not (player.is_boarded and player.boarded_wreck):
+                player.draw(screen, camera.topleft, interaction_target=interaction_target)
+
+            # Если игрок на борту, мы НЕ рисуем player.
+            # Но мы УЖЕ нарисовали StaticShip (wreck) в цикле all_objects выше.
+            # Благодаря board_wreck(), у wreck теперь спрайт игрока (_base_sprite = player.idle_sprite).
+            # Визуально это выглядит как пересадка.
 
             # --- DEBUG: ИНДИКАТОР НАПРАВЛЕНИЯ ---
             if show_scout_indicator:

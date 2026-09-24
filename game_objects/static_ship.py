@@ -1,5 +1,7 @@
+# game_objects/static_ship.py
 import pygame
 import random
+import math
 
 
 class StaticShip:
@@ -52,6 +54,14 @@ class StaticShip:
             "uranium": 0
         }
         self.storage_max = 500
+        # --- ДОБАВЛЯЕМ ФИЗИКУ ДЛЯ УПРАВЛЕНИЯ ---
+        self.velocity = pygame.math.Vector2(0, 0)
+        self.angular_velocity = 0.0
+        self.max_speed = 6.0  # Чуть медленнее игрока
+        self.friction = 0.98  # Трение в космосе
+        self.acceleration = 0.2  # Сила тяги
+        self.turn_speed = 0.15  # Скорость поворота
+        self.max_angular_velocity = 3.0
 
     @property
     def is_scanned(self):
@@ -94,6 +104,27 @@ class StaticShip:
         if new_sprite is not None and new_sprite is not self._base_sprite:
             self._base_sprite = new_sprite
 
+    def rotate(self, direction):
+        """Вращение корабля (вызывается из main.py при нажатии клавиш)"""
+        target_angular_velocity = direction * self.max_angular_velocity
+
+        if abs(self.angular_velocity - target_angular_velocity) < self.turn_speed:
+            self.angular_velocity = target_angular_velocity
+        else:
+            if self.angular_velocity < target_angular_velocity:
+                self.angular_velocity += self.turn_speed
+            else:
+                self.angular_velocity -= self.turn_speed
+
+    def accelerate(self):
+        """Ускорение корабля вперед по текущему углу"""
+        rad = math.radians(self.angle)
+        direction = pygame.math.Vector2(math.cos(rad), math.sin(rad))
+        self.velocity += direction * self.acceleration
+
+        if self.velocity.length() > self.max_speed:
+            self.velocity.scale_to_length(self.max_speed)
+
     def deposit_resource(self, name, amount):
         space_left = self.storage_max - self.storage.get(name, 0)
         if space_left <= 0:
@@ -110,6 +141,26 @@ class StaticShip:
 
     def update(self):
         self._update_sprite_by_hull()
+        # 1. Обновляем спрайт в зависимости от ремонта (твоя старая логика)
+        self._update_sprite_by_hull()
+
+        # 2. Применяем физику вращения
+        self.angular_velocity *= 0.95  # Трение вращения
+        self.angle += self.angular_velocity
+
+        # Нормализация угла (чтобы не улетал в бесконечность)
+        if self.angle >= 360:
+            self.angle -= 360
+        elif self.angle < 0:
+            self.angle += 360
+
+        # 3. Применяем физику движения
+        self.velocity *= self.friction
+        self.x += self.velocity.x
+        self.y += self.velocity.y
+
+        # Примечание: rect в draw() пересчитывается на лету, поэтому здесь его обновлять не обязательно,
+        # если только ты не используешь rect для коллизий.
 
     def draw(self, screen, camera, show_highlight=False):
         screen_x = self.x - camera.x
