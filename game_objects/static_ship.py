@@ -37,6 +37,10 @@ class StaticShip:
 
         self._is_scanned = False
         self.is_disassembled = False
+        self.is_player_parked = False  # True, если игрок сейчас управляет этим осколком и оставил свой корабль тут
+        self.parked_sprite = None      # спрайт оставленного старого корабля (для отрисовки)
+        self.parked_x = 0.0
+        self.parked_y = 0.0
         self.ship_name = "Destroyer Wreck"
         self.modules = {}
         self.resources = {
@@ -82,6 +86,20 @@ class StaticShip:
     @property
     def is_habitable(self):
         return self._is_scanned and self.modules.get("Корпус", 0) >= 100
+
+    @property
+    def can_transfer(self):
+        """Можно ли пересесть в этот корабль: корпус цел (100%) и двигатель рабочий (не ниже 30%)."""
+        if not self._is_scanned or self.is_disassembled:
+            return False
+        return (self.modules.get("Корпус", 0) >= 100 and
+                self.modules.get("Двигатель", 0) >= 30)
+
+    def get_engine_integrity(self):
+        """Целостность двигателя в процентах (0..100)."""
+        if not self._is_scanned:
+            return 0
+        return int(self.modules.get("Двигатель", 0))
 
     def _update_sprite_by_hull(self):
         """Меняет базовый спрайт в зависимости от целостности Корпуса."""

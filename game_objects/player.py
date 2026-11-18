@@ -2,7 +2,10 @@
 import pygame
 import math
 import random
-from config import SHIP_ACCELERATION, FUEL_CONSUMPTION_PER_SEC, ENERGY_PER_SHOT, ENERGY_REGEN_PER_SEC
+from config import (SHIP_ACCELERATION, FUEL_CONSUMPTION_PER_SEC, ENERGY_PER_SHOT, ENERGY_REGEN_PER_SEC,
+                    WRECK_BASE_ACCELERATION, WRECK_BASE_MAX_SPEED,
+                    WRECK_ACCEL_PENALTY_RANGE, WRECK_MAXSPEED_PENALTY_RANGE,
+                    WRECK_PLAYER_MAX_RESOURCE)
 from game_objects.bullet import Bullet
 
 
@@ -48,6 +51,9 @@ class PlayerShip:
         self.idle_sprite = idle_sprite
         self.movement_sprites = movement_sprites
         self.original_image = idle_sprite
+        # Оригинальные спрайты обычного корабля — для восстановления при возврате из осколка
+        self.default_idle_sprite = idle_sprite
+        self.default_movement_sprites = movement_sprites
 
         # rect инициализируем по центру
         self.rect = self.idle_sprite.get_rect(center=(self.x, self.y))
@@ -85,6 +91,13 @@ class PlayerShip:
         self._docking_fuel_accum = 0.0
         # --- ЛИМИТ РЕСУРСОВ ---
         self.max_resource = 50
+        self._default_max_resource = 50
+
+        # --- ПЕРЕСАДКА НА ДРУГОЙ КОРАБЛЬ (осколок Destroyer) ---
+        self.piloted_wreck = None       # StaticShip, которым сейчас управляем (None = обычный корабль)
+        # Активные параметры физики — зависят от целостности Двигателя осколка
+        self.active_acceleration = SHIP_ACCELERATION
+        self.active_max_speed = 8.0
 
         # --- СОСТОЯНИЕ УНИЧТОЖЕНИЯ ---
         self.is_destroyed = False
@@ -116,12 +129,79 @@ class PlayerShip:
             return  # нет топлива — нет ускорения
         rad = math.radians(self.angle)
         direction = pygame.math.Vector2(math.cos(rad), math.sin(rad))
-        self.velocity += direction * SHIP_ACCELERATION
-        if self.velocity.length() > self.max_speed:
-            self.velocity.scale_to_length(self.max_speed)
+        self.velocity += direction * self.active_acceleration
+        if self.velocity.length() > self.active_max_speed:
+            self.velocity.scale_to_length(self.active_max_speed)
         self.is_thrusting = True
         # Расход топлива (пересчёт из секунд в кадры: /60)
         self.fuel = max(0, self.fuel - FUEL_CONSUMPTION_PER_SEC / 60.0)
+
+    # ================================================================
+    #  ПЕРЕСАДКА НА ДРУГОЙ КОРАБЛЬ (осколок Destroyer)
+    # ================================================================
+
+    def _update_wreck_physics(self):
+        """Пересчитывает параметры физики исходя из целостности Двигателя осколка.
+        Двигатель 30% → самые низкие ходовые; 100% → полные."""
+        wreck = self.piloted_wreck
+        if wreck is None:
+            # Обычный корабль — базовая физика
+            self.active_acceleration = SHIP_ACCELERATION
+            self.active_max_speed = 8.0
+            return
+
+        engine = wreck.get_engine_integrity()
+        # Нормируем целостность двигателя в диапазон 30..100 → 0..1
+        t = max(0.0, min(1.0, (engine - 30.0) / 70.0))
+
+        self.active_acceleration = WRECK_BASE_ACCELERATION * (1.0 - WRECK_ACCEL_PENALTY_RANGE * (1.0 - t))
+        self.active_max_speed = WRECK_BASE_MAX_SPEED * (1.0 - WRECK_MAXSPEED_PENALTY_RANGE * (1.0 - t))
+
+        if self.velocity.length() > self.active_max_speed:
+            self.velocity.scale_to_length(self.active_max_speed)
+
+    def board_wreck(self, wreck, wreck_sprite):
+        """Пересаживает игрока в осколок. Переносит HP/топливо/энергию/инвентарь.
+        wreck_sprite — спрайт отремонтированного корабля (для отрисовки)."""
+        # Сохраняем дефолтные спрайты обычного корабля для возврата
+        if not self.piloted_wreck:
+            self.default_idle_sprite = self.idle_sprite
+            self.default_movement_sprites = self.movement_sprites
+            self._default_max_resource = self.max_resource
+
+        self.piloted_wreck = wreck
+
+        # Перенимаем позицию и спрайт осколка
+        self.x = wreck.x
+        self.y = wreck.y
+        self.angle = wreck.angle
+        self.original_image = wreck_sprite
+        self.idle_sprite = wreck_sprite
+        self.movement_sprites = []
+        # У осколка-склада увеличенный лимит груза
+        self.max_resource = WRECK_PLAYER_MAX_RESOURCE
+
+        # Сбрасываем состояния
+        self.velocity = pygame.math.Vector2(0, 0)
+        self.angular_velocity = 0.0
+        self.is_thrusting = False
+        self.stop_collection()
+        self._update_wreck_physics()
+        self._update_rect()
+
+    def leave_wreck(self, old_piloted_wreck):
+        """Возвращает игрока в обычный корабль. old_piloted_wreck — осколок, из которого выходим."""
+        self.piloted_wreck = None
+        # Восстанавливаем спрайты и лимит обычного корабля
+        self.idle_sprite = self.default_idle_sprite
+        self.movement_sprites = self.default_movement_sprites
+        self.original_image = self.default_idle_sprite
+        self.max_resource = self._default_max_resource
+        self.animation_index = 0
+        self.animation_timer = 0
+        self._update_wreck_physics()
+        self._update_rect()
+        # Позицию задаёт вызывающий код (рядом с осколком-складом)
 
     def start_landing(self, planet=None):
         self.is_landing = True
@@ -413,6 +493,9 @@ class PlayerShip:
         # Сохраняем скорость ДО изменений для передачи в main.py (физика удара)
         self.last_vx = float(self.velocity.x)
         self.last_vy = float(self.velocity.y)
+
+        # Физика активного корабля (зависит от Двигателя осколка, если управляем им)
+        self._update_wreck_physics()
 
         # --- ЛОГИКА ПОСАДКИ ---
         if self.is_landing and not self.on_planet_surface:

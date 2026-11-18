@@ -202,7 +202,10 @@ def main():
     storage_withdraw_rects = {}
     storage_switch_rect = pygame.Rect(0, 0, 0, 0)
     storage_repair_switch_rect = pygame.Rect(0, 0, 0, 0)
-    pilot_button_rect = pygame.Rect(0, 0, 0, 0)
+pilot_button_rect = pygame.Rect(0, 0, 0, 0)
+    transfer_button_rect = pygame.Rect(0, 0, 0, 0)
+    # Хранение старых кораблей после пересадки (осколков) и кнопки обратной пересадки
+    parked_ships = []  # список StaticShip-осколков, в которых игрок уже был и оставил старый корабль
 
     btn_w, btn_h = 240, 36
     cx_ui = CAMERA_WIDTH // 2
@@ -482,7 +485,55 @@ def main():
         rep_y = current_y + 6
         repair_rect = pygame.Rect(rep_x, rep_y, rep_w, rep_h)
         draw_hologram_button(surface, "РЕМОНТ МОДУЛЕЙ", rep_x, rep_y, rep_w, rep_h, time_offset)
-        return repair_rect
+
+        # --- КНОПКА ПЕРЕСАДКИ (если корпус цел и двигатель рабочий) ---
+        tr_w, tr_h = 200, 28
+        tr_x = x
+        tr_y = rep_y + rep_h + 6
+        transfer_rect = pygame.Rect(tr_x, tr_y, tr_w, tr_h)
+        if wreck.can_transfer:
+            label = "ВЕРНУТЬСЯ В СВОЙ КОРАБЛЬ" if wreck.is_player_parked else "ПЕРЕСЕСТЬ В ЭТОТ"
+            draw_hologram_button(surface, label, tr_x, tr_y, tr_w, tr_h, time_offset)
+        return repair_rect, transfer_rect
+
+    def _handle_transfer(wreck):
+        """Пересадка игрока в/из осколка-склада. Если player уже управляет этим осколком
+        (is_player_parked), возвращаем его в оставленный корабль."""
+        nonlocal player
+        # Спрайт отремонтированного Destroyer для управляемого корабля
+        damage_sprites = StaticShip._get_repair_sprites()
+        wreck_sprite = damage_sprites.get(100) or wreck_sprite
+
+        if player.piloted_wreck is wreck:
+            # --- ВЫХОД из осколка — возврат в оставленный корабль ---
+            player.leave_wreck(wreck)
+            player.x = wreck.parked_x
+            player.y = wreck.parked_y
+            player.angle = random.uniform(0, 360)
+            wreck.is_player_parked = False
+            wreck.parked_sprite = None
+            # Закрываем меню
+            ui_active = False
+            ui_target_wreck = None
+            ui_target_sector = None
+            ui_mode = "wreck"
+            print("[ACTION] Игрок вернулся в свой корабль")
+            return
+
+        # --- ПЕРЕСАДКА в осколок ---
+        # Текущий обычный корабль игрока «паркуем» рядом с осколком
+        wreck.parked_sprite = player.original_image
+        wreck.parked_x = player.x
+        wreck.parked_y = player.y
+        wreck.is_player_parked = True
+
+        player.board_wreck(wreck, wreck_sprite)
+
+        ui_active = False
+        ui_target_wreck = None
+        ui_target_sector = None
+        ui_mode = "wreck"
+        print(f"[ACTION] Игрок пересед в осколок (Двигатель {wreck.get_engine_integrity()}%)")
 
     def draw_minimap(screen, player, current_sector, debris_list, camera, time_offset):
         """Рисует мини-карту текущей комнаты в правом верхнем углу."""
@@ -657,6 +708,8 @@ def main():
                                 repair_menu_active = False
                                 repair_target_module = None
                                 print("[ACTION] Переключение в режим ремонта")
+                            elif transfer_button_rect.collidepoint(event.pos) and ui_target_wreck.can_transfer:
+                                _handle_transfer(ui_target_wreck)
 
 
                     # 1. Если открыто меню ремонта (подменю)
@@ -1384,6 +1437,10 @@ def main():
                 if isinstance(obj, list):
                     continue
 
+                # Осколок, которым игрок сейчас управляет, рисуется как сам игрок — пропускаем его здесь
+                if obj is player.piloted_wreck:
+                    continue
+
                 if hasattr(obj, 'update') and not paused:
                     if isinstance(obj, DestroyerShip):
                         obj.update(target=player)
@@ -1405,6 +1462,17 @@ def main():
                         obj.draw(screen, camera, show_highlight=show_highlight)
                     else:
                         obj.draw(screen, camera)
+
+            # --- ОТРИСОВКА ПРИПАРКОВАННЫХ КОРАБЛЕЙ (старые корабли игрока) ---
+            # Отдельный проход: рисуем даже если соответствующий осколок пропущен
+            # (управляемый игроком осколок не рисуется в цикле выше).
+            for obj in all_objects:
+                if isinstance(obj, StaticShip) and obj.is_player_parked and obj.parked_sprite:
+                    psx = int(obj.parked_x - camera.x)
+                    psy = int(obj.parked_y - camera.y)
+                    parked_img = obj.parked_sprite
+                    parked_rect = parked_img.get_rect(center=(psx, psy))
+                    screen.blit(parked_img, parked_rect)
 
             # --- СЕРАЯ ОКРУЖНОСТЬ ВОКРУГ MOD04 АСТЕРОИДОВ ---
             if current_sector and current_sector.asteroids:
@@ -1524,7 +1592,7 @@ def main():
                         # --- РЕЖИМ СКЛАДА ---
                         h_base_x = wreck_sx + 60
                         h_base_y = wreck_sy - 100
-                        storage_repair_switch_rect = draw_storage_ui(
+                        storage_repair_switch_rect, transfer_button_rect = draw_storage_ui(
                             screen, ui_target_wreck, player, resource_surfaces,
                             h_base_x, h_base_y, h_time,
                             storage_deposit_rects, storage_withdraw_rects
