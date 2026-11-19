@@ -2,17 +2,27 @@
 import pygame
 import math
 import random
-from config import (SHIP_ACCELERATION, FUEL_CONSUMPTION_PER_SEC, ENERGY_PER_SHOT, ENERGY_REGEN_PER_SEC,
-                    WRECK_BASE_ACCELERATION, WRECK_BASE_MAX_SPEED,
-                    WRECK_ACCEL_PENALTY_RANGE, WRECK_MAXSPEED_PENALTY_RANGE,
-                    WRECK_PLAYER_MAX_RESOURCE)
+from config import (SHIP_CLASSES, FUEL_CONSUMPTION_PER_SEC, ENERGY_PER_SHOT,
+                    ENERGY_REGEN_PER_SEC, WRECK_PLAYER_MAX_RESOURCE)
 from game_objects.bullet import Bullet
 
 
+def _get_ship_stats(class_id):
+    """Возвращает статы класса корабля (dict). Неизвестный класс → статы класса 4."""
+    stats = SHIP_CLASSES.get(int(class_id))
+    if stats is None:
+        stats = SHIP_CLASSES[4]
+    return stats
+
+
 class PlayerShip:
-    def __init__(self, x, y, idle_sprite, movement_sprites):
+    def __init__(self, x, y, idle_sprite, movement_sprites, class_id=4):
         self.x = x
         self.y = y
+
+        # --- СТАТЫ КЛАССА КОРАБЛЯ (data-driven из config.SHIP_CLASSES) ---
+        self.class_id = class_id
+        self.base_stats = _get_ship_stats(class_id)
 
         # Скорости ДО обнуления (для физики удара в main.py)
         self.last_vx = 0.0
@@ -41,11 +51,11 @@ class PlayerShip:
         self.docking_start_pos = None    # позиция корабля в момент начала стыковки
         self.docking_start_angle = 0.0   # угол корабля в момент начала стыковки
 
-        # Физика вращения
+        # Физика вращения — из статов класса
         self.angular_velocity = 0.0
-        self.max_angular_velocity = 3.0
+        self.max_angular_velocity = self.base_stats["turn_rate"]
         self.turn_acceleration = 0.2
-        self.max_speed = 8
+        self.max_speed = self.base_stats["max_speed"]
 
         # Спрайты
         self.idle_sprite = idle_sprite
@@ -68,8 +78,12 @@ class PlayerShip:
         self.fire_cooldown = 0
         self.cooldown_time = 250  # мс между выстрелами
 
-        # Инвентарь
-        self.inventory = {
+        # Инвентарь. Свой у каждого корабля (объект), которым игрок управляет.
+        # ship_inventories хранит инвентарь для каждого корабля: ключ = идентификатор корабля.
+        # self.inventory всегда указывает на инвентарь активного корабля.
+        self.ship_inventories = {}
+        self._active_inventory_key = None  # ключ активного корабля в ship_inventories
+        self._empty_inventory = {
             "metal": 0,
             "precious": 0,
             "steel": 0,
@@ -77,27 +91,28 @@ class PlayerShip:
             "mineral": 0,
             "uranium": 0
         }
+        self.inventory = dict(self._empty_inventory)
         # Здоровье
-        self.hp = 100
-        self.max_hp = 100
+        self.hp = self.base_stats["max_hp"]
+        self.max_hp = self.base_stats["max_hp"]
         # --- ЭНЕРГИЯ (батареи) ---
-        self.energy = 100
-        self.max_energy = 100
+        self.energy = self.base_stats["max_energy"]
+        self.max_energy = self.base_stats["max_energy"]
         # --- ТОПЛИВО ---
-        self.fuel = 100
-        self.max_fuel = 100
+        self.fuel = self.base_stats["max_fuel"]
+        self.max_fuel = self.base_stats["max_fuel"]
         # --- ВНУТРЕННИЕ ТАЙМЕРЫ ---
         self._energy_regen_accum = 0.0
         self._docking_fuel_accum = 0.0
-        # --- ЛИМИТ РЕСУРСОВ ---
-        self.max_resource = 50
-        self._default_max_resource = 50
+        # --- ЛИМИТ РЕСУРСОВ (грузоподъёмность из статов класса) ---
+        self.max_resource = self.base_stats["cargo"]
+        self._default_max_resource = self.base_stats["cargo"]
 
-        # --- ПЕРЕСАДКА НА ДРУГОЙ КОРАБЛЬ (осколок Destroyer) ---
-        self.piloted_wreck = None       # StaticShip, которым сейчас управляем (None = обычный корабль)
-        # Активные параметры физики — зависят от целостности Двигателя осколка
-        self.active_acceleration = SHIP_ACCELERATION
-        self.active_max_speed = 8.0
+        # --- ПЕРЕСАДКА НА ДРУГОЙ КОРАБЛЬ (осколок Destroyer и др.) ---
+        self.piloted_wreck = None       # корабль, которым сейчас управляем (None = обычный корабль)
+        # Активные параметры физики — стартуют из статов класса
+        self.active_acceleration = self.base_stats["acceleration"]
+        self.active_max_speed = self.base_stats["max_speed"]
 
         # --- СОСТОЯНИЕ УНИЧТОЖЕНИЯ ---
         self.is_destroyed = False
@@ -141,28 +156,58 @@ class PlayerShip:
     # ================================================================
 
     def _update_wreck_physics(self):
-        """Пересчитывает параметры физики исходя из целостности Двигателя осколка.
-        Двигатель 30% → самые низкие ходовые; 100% → полные."""
+        """Пересчитывает параметры физики исходя из класса и целостности Двигателя корабля.
+        Двигатель 30% → самые низкие ходовые; 100% → полные (по статам класса корабля)."""
         wreck = self.piloted_wreck
         if wreck is None:
-            # Обычный корабль — базовая физика
-            self.active_acceleration = SHIP_ACCELERATION
-            self.active_max_speed = 8.0
+            # Обычный корабль — статы класса игрока
+            stats = SHIP_CLASSES.get(self.class_id, SHIP_CLASSES[4])
+            self.active_acceleration = stats["acceleration"]
+            self.active_max_speed = stats["max_speed"]
             return
+
+        # Корабль-осколок: физика от его класса
+        wreck_class = getattr(wreck, 'class_id', 3)  # осколок по умолчанию класс 3 (Эсминец)
+        stats = SHIP_CLASSES.get(wreck_class, SHIP_CLASSES[3])
+        max_acc = stats["acceleration"]
+        max_spd = stats["max_speed"]
 
         engine = wreck.get_engine_integrity()
         # Нормируем целостность двигателя в диапазон 30..100 → 0..1
         t = max(0.0, min(1.0, (engine - 30.0) / 70.0))
 
-        self.active_acceleration = WRECK_BASE_ACCELERATION * (1.0 - WRECK_ACCEL_PENALTY_RANGE * (1.0 - t))
-        self.active_max_speed = WRECK_BASE_MAX_SPEED * (1.0 - WRECK_MAXSPEED_PENALTY_RANGE * (1.0 - t))
+        self.active_acceleration = max_acc * (0.45 + 0.55 * t)
+        self.active_max_speed = max_spd * (0.45 + 0.55 * t)
 
         if self.velocity.length() > self.active_max_speed:
             self.velocity.scale_to_length(self.active_max_speed)
 
+    def _current_ship_key(self):
+        """Возвращает ключ активного корабля в ship_inventories."""
+        if self._active_inventory_key is not None:
+            return self._active_inventory_key
+        # По умолчанию — основной корабль игрока
+        return "player"
+
+    def _load_inventory(self, key, max_resource):
+        """Сохраняет инвентарь текущего корабля и подгружает инвентарь корабля с ключом key."""
+        old_key = self._current_ship_key()
+        if old_key != key or old_key not in self.ship_inventories:
+            self.ship_inventories[old_key] = dict(self.inventory)
+        else:
+            self.ship_inventories[old_key] = dict(self.inventory)
+
+        self._active_inventory_key = key
+        # Подгружаем инвентарь целевого корабля (или пустой)
+        if key not in self.ship_inventories:
+            self.ship_inventories[key] = dict(self._empty_inventory)
+        self.inventory = self.ship_inventories[key]
+        self.max_resource = max_resource
+
     def board_wreck(self, wreck, wreck_sprite):
-        """Пересаживает игрока в осколок. Переносит HP/топливо/энергию/инвентарь.
-        wreck_sprite — спрайт отремонтированного корабля (для отрисовки)."""
+        """Пересаживает игрока в осколок. Инвентарь и вместимость — СВОИ у каждого корабля,
+        поэтому при пересадке переключаемся на инвентарь осколка (он хранится в ship_inventories,
+        а у самого осколка — как wreck.storage). Спрайт осколка для отрисовки."""
         # Сохраняем дефолтные спрайты обычного корабля для возврата
         if not self.piloted_wreck:
             self.default_idle_sprite = self.idle_sprite
@@ -178,8 +223,19 @@ class PlayerShip:
         self.original_image = wreck_sprite
         self.idle_sprite = wreck_sprite
         self.movement_sprites = []
-        # У осколка-склада увеличенный лимит груза
-        self.max_resource = WRECK_PLAYER_MAX_RESOURCE
+        # Грузоподъёмность — из класса корабля-осколка
+        wreck_cargo = getattr(wreck, 'cargo_capacity', WRECK_PLAYER_MAX_RESOURCE)
+
+        # Переключаемся на персональный инвентарь осколка.
+        # Инвентарь осколка живёт в wreck.storage (склад), но игрок работает со своим словарём
+        # ресурсов; синхронизируем через ship_inventories по ключу id(wreck).
+        wreck_key = f"wreck_{id(wreck)}"
+        self._load_inventory(wreck_key, wreck_cargo)
+        # Переносим вчерашний склад осколка в персональный инвентарь игрока для удобства:
+        # берём содержимое wreck.storage как основу, если там что-то есть.
+        if not any(self.inventory.values()) and any(getattr(wreck, 'storage', {}).values()):
+            for res, amt in wreck.storage.items():
+                self.inventory[res] = amt
 
         # Сбрасываем состояния
         self.velocity = pygame.math.Vector2(0, 0)
@@ -190,15 +246,24 @@ class PlayerShip:
         self._update_rect()
 
     def leave_wreck(self, old_piloted_wreck):
-        """Возвращает игрока в обычный корабль. old_piloted_wreck — осколок, из которого выходим."""
+        """Возвращает игрока в обычный корабль. Инвентарь обычного корабля восстанавливается.
+        old_piloted_wreck — осколок, из которого выходим (его инвентарь сохраняется в ship_inventories)."""
+        # Сохраняем инвентарь осколка, из которого выходим
+        if old_piloted_wreck is not None:
+            wreck_key = f"wreck_{id(old_piloted_wreck)}"
+            self.ship_inventories[wreck_key] = dict(self.inventory)
+            # Синхронизируем обратно со складом осколка
+            for res in old_piloted_wreck.storage:
+                old_piloted_wreck.storage[res] = self.inventory.get(res, 0)
+
         self.piloted_wreck = None
         # Восстанавливаем спрайты и лимит обычного корабля
         self.idle_sprite = self.default_idle_sprite
         self.movement_sprites = self.default_movement_sprites
         self.original_image = self.default_idle_sprite
         self.max_resource = self._default_max_resource
-        self.animation_index = 0
-        self.animation_timer = 0
+        # Переключаемся на персональный инвентарь обычного корабля
+        self._load_inventory("player", self._default_max_resource)
         self._update_wreck_physics()
         self._update_rect()
         # Позицию задаёт вызывающий код (рядом с осколком-складом)

@@ -2,6 +2,7 @@
 import pygame
 import random
 import math
+from config import SHIP_CLASSES
 
 
 class StaticShip:
@@ -15,7 +16,14 @@ class StaticShip:
             cls._repair_sprites_cache = get_wreck_repair_sprites()
         return cls._repair_sprites_cache
 
-    def __init__(self, sprite, x, y, angle=0.0):
+    def __init__(self, sprite, x, y, angle=0.0, class_id=3):
+        # Класс корабля-осколка (по умолчанию 3 — Эсминец). Статы из config.SHIP_CLASSES.
+        self.class_id = class_id
+        self.base_stats = SHIP_CLASSES.get(int(class_id), SHIP_CLASSES[3])
+        # Вместимость склада — грузоподъёмность класса
+        self.cargo_capacity = self.base_stats["cargo"]
+        # Модификатор сложности ремонта (учитывается при ремонте дроном/станцией)
+
         # Сразу грузим спрайт 20% — обломок изначально выглядит повреждённым
         repair_sprites = self._get_repair_sprites()
         self._base_sprite = repair_sprites.get(20, sprite)
@@ -57,7 +65,7 @@ class StaticShip:
             "mineral": 0,
             "uranium": 0
         }
-        self.storage_max = 500
+self.storage_max = self.cargo_capacity
         # --- ДОБАВЛЯЕМ ФИЗИКУ ДЛЯ УПРАВЛЕНИЯ ---
         self.velocity = pygame.math.Vector2(0, 0)
         self.angular_velocity = 0.0

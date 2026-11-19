@@ -123,3 +123,6 @@ logs/
 *.log
 save_data/
 user_data/
+
+# Внутренние файлы Giga IDE
+.gigaide/

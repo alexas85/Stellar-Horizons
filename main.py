@@ -145,7 +145,8 @@ def main():
         x=ROOM_WIDTH // 2,
         y=ROOM_HEIGHT // 2,
         idle_sprite=idle_sprite,
-        movement_sprites=movement_sprites
+        movement_sprites=movement_sprites,
+        class_id=4
     )
     player.set_destroyed_sprite(player_destroyed_sprite)
 
