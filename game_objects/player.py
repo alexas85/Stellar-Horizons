@@ -3,7 +3,10 @@ import pygame
 import math
 import random
 from config import (SHIP_CLASSES, FUEL_CONSUMPTION_PER_SEC, ENERGY_PER_SHOT,
-                    ENERGY_REGEN_PER_SEC, WRECK_PLAYER_MAX_RESOURCE)
+                    ENERGY_REGEN_PER_SEC, WRECK_PLAYER_MAX_RESOURCE,
+                    START_HP_FRACTION, START_FUEL_FRACTION,
+                    COLLISION_DAMAGE_MIN_SIZE, COLLISION_DAMAGE_SPEED_THRESHOLD,
+                    COLLISION_DAMAGE_PER_SPEED)
 from game_objects.bullet import Bullet
 
 
@@ -16,7 +19,7 @@ def _get_ship_stats(class_id):
 
 
 class PlayerShip:
-    def __init__(self, x, y, idle_sprite, movement_sprites, class_id=4):
+    def __init__(self, x, y, idle_sprite, movement_sprites, class_id=4, start_damaged=False):
         self.x = x
         self.y = y
 
@@ -101,6 +104,19 @@ class PlayerShip:
         # --- ТОПЛИВО ---
         self.fuel = self.base_stats["max_fuel"]
         self.max_fuel = self.base_stats["max_fuel"]
+        # --- ПОВРЕЖДЁННЫЙ СТАРТ (сюжетная завязка) ---
+        if start_damaged:
+            self.hp = int(self.max_hp * START_HP_FRACTION)
+            self.fuel = int(self.max_fuel * START_FUEL_FRACTION)
+
+        # --- СОСТОЯНИЕ МОДУЛЕЙ КОРАБЛЯ ---
+        # Утечка топлива: True = топливо уходит постоянно (пассивный расход больше).
+        # Ремонтируется ресурсами. Пока поломана — топливо тратится даже на месте.
+        self.fuel_leak = start_damaged
+        # РЛС/радар: True = работает, позволяет сканировать комнату по клавише R.
+        # До ремонта недоступно сканирование.
+        self.radar_online = False
+        # Флаг мигания боевым состоянием на мини-карте (нет)
         # --- ВНУТРЕННИЕ ТАЙМЕРЫ ---
         self._energy_regen_accum = 0.0
         self._docking_fuel_accum = 0.0
@@ -511,6 +527,101 @@ class PlayerShip:
             return True
         return False
 
+    # ================================================================
+    #  МОДУЛИ КОРАБЛЯ: ремонт утечки топлива и РЛС (радар)
+    # ================================================================
+    # Стоимость ремонта каждого модуля в ресурсах (достаточно ли металла/минерала).
+    FUEL_LEAK_REPAIR_COST = {"metal": 15, "mineral": 5}
+    RADAR_REPAIR_COST = {"metal": 10, "crystal": 2}
+    # Ремонт корпуса (HP) — полный ремонт до максимума.
+    HULL_REPAIR_COST = {"metal": 20, "mineral": 10}
+
+    def module_status(self):
+        """Возвращает словарь состояния модулей для меню ремонта.
+        Формат: {module_id: {"name": str, "repaired": bool, "cost": {res: n}}}"""
+        return {
+            "fuel_leak": {
+                "name": "Устранить утечку топлива",
+                "repaired": not self.fuel_leak,
+                "cost": dict(self.FUEL_LEAK_REPAIR_COST),
+            },
+            "radar": {
+                "name": "Починить радиолокатор",
+                "repaired": self.radar_online,
+                "cost": dict(self.RADAR_REPAIR_COST),
+            },
+            "hull": {
+                "name": "Ремонт корпуса",
+                "repaired": self.hp >= self.max_hp,
+                "cost": dict(self.HULL_REPAIR_COST),
+                # Показываем текущий % HP для справки
+                "hp_pct": int(self.hp / self.max_hp * 100) if self.max_hp > 0 else 0,
+            },
+        }
+
+    def can_repair_module(self, module_id):
+        """Проверяет, доступен ли ремонт модуля (его нужно чинить и хватает ли ресурсов)."""
+        status = self.module_status().get(module_id)
+        if status is None or status["repaired"]:
+            return False
+        return all(self.inventory.get(res, 0) >= amt for res, amt in status["cost"].items())
+
+    # --- Хуки для дрона-ремонтника (ремонт модулей игрока) ---
+    # Дрон оперирует «целостностью» 0..100. Для игрока модули — булевы,
+    # поэтому мапим проценты в булево значение.
+    def _module_integrity(self, module_id):
+        """Возвращает 0..100 «целостности» модуля для дрона-ремонтника."""
+        if module_id == "fuel_leak":
+            return 0 if self.fuel_leak else 100
+        elif module_id == "radar":
+            return 100 if self.radar_online else 0
+        elif module_id == "hull":
+            return int(self.hp / self.max_hp * 100) if self.max_hp > 0 else 0
+        return 0
+
+    def _set_module_integrity(self, module_id, value):
+        """Применяет обновлённую целостность (0..100) от дрона к модулю игрока."""
+        repaired = value >= 99.5
+        if module_id == "fuel_leak":
+            self.fuel_leak = not repaired
+        elif module_id == "radar":
+            self.radar_online = repaired
+        elif module_id == "hull":
+            # Пополняем HP плавно к заданной целостности
+            if self.hp < self.max_hp:
+                self.hp = min(self.max_hp, self.hp + (self.max_hp - self.hp) * 0.02)
+            if value >= 99.5:
+                self.hp = self.max_hp
+        if repaired:
+            print(f"[REPAIR] Модуль '{module_id}' корабля игрока полностью восстановлен")
+
+    def make_repair_hooks(self, module_id):
+        """Возвращает (read_hook, write_hook) для RepairDrone по модулю игрока."""
+        if module_id == "fuel_leak":
+            return (lambda: self._module_integrity("fuel_leak"),
+                    lambda v: self._set_module_integrity("fuel_leak", v))
+        elif module_id == "radar":
+            return (lambda: self._module_integrity("radar"),
+                    lambda v: self._set_module_integrity("radar", v))
+        elif module_id == "hull":
+            return (lambda: self._module_integrity("hull"),
+                    lambda v: self._set_module_integrity("hull", v))
+        return None
+
+    def repair_module(self, module_id):
+        """Списывает ресурсы за ремонт модуля и возвращает True.
+        Сам ремонт (изменение состояния) выполняет дрон-ремонтник позже,
+        поэтому здесь флаги модулей НЕ меняются."""
+        status = self.module_status().get(module_id)
+        if status is None or status["repaired"]:
+            return False
+        if not all(self.inventory.get(res, 0) >= amt for res, amt in status["cost"].items()):
+            return False
+
+        for res, amt in status["cost"].items():
+            self.remove_resource(res, amt)
+        return True
+
     def update(self, world_objects=None):
         """
         Основной цикл обновления физики.
@@ -522,9 +633,15 @@ class PlayerShip:
                 regen = int(self._energy_regen_accum)
                 self.energy = min(self.max_energy, self.energy + regen)
                 self._energy_regen_accum -= regen
-        # Фоновый расход топлива: 0.5 единицы в секунду
-        if self.fuel > 0 and not self.is_docked:
-            self.fuel -= 0.5 / 60.0
+        # Фоновый расход топлива: происходит ТОЛЬКО из-за утечки.
+        # Пока утечка не устранена — топливо уходит даже на месте (0.5 ед/с * 2.5).
+        # После ремонта фоновая потеря прекращается: на месте топливо не тратится,
+        # расход есть только при ускорении (см. accelerate).
+        # Утечка тратит топливо в 3 раза медленнее исходного значения (~0.83 ед/с),
+        # чтобы игрок успел накопить ресурсы и вызвать дрона.
+        if self.fuel_leak and self.fuel > 0 and not self.is_docked:
+            leak_mult = 2.5
+            self.fuel -= (0.5 * leak_mult) / 60.0 / 3.0
             if self.fuel < 0:
                 self.fuel = 0
 
@@ -672,6 +789,18 @@ class PlayerShip:
                     break
 
         if collision_detected and hit_object:
+            # --- УРОН ОТ СТОЛКНОВЕНИЯ С АСТЕРОИДОМ 32+px, пропорционально скорости ---
+            size = getattr(hit_object, 'size_px', 0) or 0
+            if size >= COLLISION_DAMAGE_MIN_SIZE and not self.is_destroyed:
+                speed = self.velocity.length()
+                if speed > COLLISION_DAMAGE_SPEED_THRESHOLD:
+                    damage = int(round(
+                        (speed - COLLISION_DAMAGE_SPEED_THRESHOLD) * COLLISION_DAMAGE_PER_SPEED
+                    ))
+                    if damage > 0:
+                        self.take_damage(damage)
+                        print(f"[COLLISION] Удар об астероид {size}px на скорости {speed:.1f}: -{damage} HP")
+
             self.velocity = pygame.math.Vector2(0, 0)
             self.is_thrusting = False
             self.apply_impulse_to(hit_object, 12.0)

@@ -65,7 +65,7 @@ class StaticShip:
             "mineral": 0,
             "uranium": 0
         }
-self.storage_max = self.cargo_capacity
+        self.storage_max = self.cargo_capacity
         # --- ДОБАВЛЯЕМ ФИЗИКУ ДЛЯ УПРАВЛЕНИЯ ---
         self.velocity = pygame.math.Vector2(0, 0)
         self.angular_velocity = 0.0

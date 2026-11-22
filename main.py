@@ -8,6 +8,7 @@ import random
 from config import ROOM_WIDTH, ROOM_HEIGHT, CAMERA_WIDTH, CAMERA_HEIGHT
 from config import PLANET_ROOM_WIDTH, PLANET_ROOM_HEIGHT
 from game_objects.static_ship import StaticShip
+from game_objects.asteroid import Asteroid
 from sprites import get_backgrounds, get_ship_sprites, get_asteroid_sprites, get_warden_sprites, get_explosion_sprites, get_player_destroyed_sprite, get_drone_sprite, get_scan_sprites
 from sprites import get_crystal_sprite
 from game_objects.crystal import Crystal
@@ -15,7 +16,8 @@ from game_objects.player import PlayerShip
 from world.generator import WorldGenerator
 from game_objects.static_planet import StaticPlanet
 from game_objects.station import Station
-from config import RESOURCE_ICONS, REPAIR_COST_PER_PERCENT, REPAIR_RESOURCE_TYPE
+from config import (RESOURCE_ICONS, REPAIR_COST_PER_PERCENT, REPAIR_RESOURCE_TYPE, GAME_INTRO_TEXT,
+                    RADAR_WAVE_SPEED, VIEW_REVEAL_MS, RADAR_COOLDOWN_MS)
 from game_objects.rocket import Rocket
 from game_objects.enemy import DestroyerShip, ScoutShip
 from game_objects.warden import WardenShip
@@ -25,7 +27,8 @@ from sprites import get_sparks_sprites
 from game_objects.drone import ScanDrone, RepairDrone
 from game_objects.amoeba import SpaceAmoeba
 from game_objects.debris import ShipDebris
-from sprites import get_destroyer_debris_sprites, get_scout_debris_sprites
+from game_objects.cargo_hauler import CargoHauler
+from sprites import get_destroyer_debris_sprites, get_scout_debris_sprites, get_hauler_debris_sprites
 from ui_config import HUD_NEON, HUD_GLOW, HUD_TEXT, HUD_BG_ALPHA, HUD_BORDER_WIDTH, HUD_GAP, HUD_NOISE_INTENSITY, HUD_NOISE_LINE_ALPHA, HUD_GLOW_OVERLAY_ALPHA
 
 
@@ -146,7 +149,8 @@ def main():
         y=ROOM_HEIGHT // 2,
         idle_sprite=idle_sprite,
         movement_sprites=movement_sprites,
-        class_id=4
+        class_id=4,
+        start_damaged=True
     )
     player.set_destroyed_sprite(player_destroyed_sprite)
 
@@ -159,6 +163,7 @@ def main():
     crystals = []
     destroyer_debris_sprites = get_destroyer_debris_sprites()
     scout_debris_sprites = get_scout_debris_sprites()
+    hauler_debris_sprites = get_hauler_debris_sprites()
     # Загрузка осколков Орбитального Стража (19 штук)
     orbital_warden_debris_sprites = get_orbital_warden_debris_sprites()
     print(f"[INIT] Загружено {len(orbital_warden_debris_sprites)} спрайтов осколков Orbital Warden")
@@ -193,6 +198,23 @@ def main():
     repair_menu_active = False  # Открыто ли окно расчета стоимости?
     repair_target_module = None  # Какой модуль чиним ("Корпус", "Броня" и т.д.)
     repair_needed_amount = 0  # Сколько ресурсов нужно
+    # --- МЕНЮ РЕМОНТА КОРАБЛЯ ИГРОКА (контекстное, по клавише E) ---
+    ship_repair_menu = False       # открыто ли меню ремонта собственного корабля
+    # Была ли клавиша E нажата ранее и с тех пор НЕ отпускалась.
+    # Нужен, чтобы не открывать меню ремонта, пока E ещё зажато после добычи:
+    # меню открывается только свежим нажатием после того, как E отпустили.
+    e_key_held = False             # True, если E зажата в рамках текущего касания
+    # --- РАДАР / СКАНИРОВАНИЕ КОМНАТЫ ---
+    radar_scan_active = False      # идёт ли волна сканирования
+    radar_wave_progress = 0.0      # прогресс волны (0..1)
+    # До какого момента нельзя сканировать повторно (перезагрузка радара)
+    radar_cooldown_until = 0
+    # id стационарных объектов (астероиды, планеты, станции, осколки),
+    # которые мы увидели хоть раз и которые остаются на мини-карте навсегда.
+    permanent_reveal = set()
+    # Словарь времени последнего «озарения обзором» движущихся объектов
+    # (корабли, амёбы, летающие осколки): {id(obj): ms}
+    view_reveal_times = {}
     drones = []
     # Список ремонтных дронов
     repair_drones = []
@@ -203,8 +225,14 @@ def main():
     storage_withdraw_rects = {}
     storage_switch_rect = pygame.Rect(0, 0, 0, 0)
     storage_repair_switch_rect = pygame.Rect(0, 0, 0, 0)
-pilot_button_rect = pygame.Rect(0, 0, 0, 0)
+    pilot_button_rect = pygame.Rect(0, 0, 0, 0)
     transfer_button_rect = pygame.Rect(0, 0, 0, 0)
+    # Очередь отложенных отрядов истребителей (возмездие за транспортник).
+    # Элементы: {"room": (x, y), "arrive_at": ms}
+    hauler_retaliation_queue = []
+    # Глобальный список всех транспортников (обновляются и рисуются всегда,
+    # независимо от того, в какой комнате находится игрок).
+    global_haulers = []
     # Хранение старых кораблей после пересадки (осколков) и кнопки обратной пересадки
     parked_ships = []  # список StaticShip-осколков, в которых игрок уже был и оставил старый корабль
 
@@ -391,11 +419,18 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
         wreck_sx = int(wreck.x - camera.x)
         wreck_sy = int(wreck.y - camera.y)
 
+        # Спрайт цели: у осколков — .sprite, у игрока — original_image/idle_sprite
+        target_sprite = getattr(wreck, 'sprite', None)
+        if target_sprite is None:
+            target_sprite = getattr(wreck, 'original_image', None)
+        if target_sprite is None:
+            target_sprite = getattr(wreck, 'idle_sprite', None)
+
         # Размеры полосы
-        bar_w = wreck.sprite.get_width()  # Ширина = ширина спрайта корабля
+        bar_w = target_sprite.get_width()  # Ширина = ширина спрайта корабля
         bar_h = 6
         bar_x = wreck_sx - bar_w // 2
-        bar_y = wreck_sy - wreck.sprite.get_height() // 2 - 20  # Над кораблём
+        bar_y = wreck_sy - target_sprite.get_height() // 2 - 20  # Над кораблём
 
         # Фон полосы (тёмный)
         bg_surf = pygame.Surface((bar_w, bar_h), pygame.SRCALPHA)
@@ -422,7 +457,13 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
 
         # Текст с процентами
         font = pygame.font.SysFont("consolas", 12, bold=True)
-        percent_text = f"{active_drone.module_name}: {int(progress * 100)}%"
+        mod_name = active_drone.module_name
+        # Человекочитаемое имя модуля для отображения над кораблём игрока
+        human_name = {
+            "fuel_leak": "Утечка топлива",
+            "radar": "Радиолокатор",
+        }.get(mod_name, mod_name)
+        percent_text = f"{human_name}: {int(progress * 100)}%"
         text_surf = font.render(percent_text, True, HUD_NEON)
         text_rect = text_surf.get_rect(midbottom=(wreck_sx, bar_y - 2))
         surface.blit(text_surf, text_rect)
@@ -536,6 +577,72 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
         ui_mode = "wreck"
         print(f"[ACTION] Игрок пересед в осколок (Двигатель {wreck.get_engine_integrity()}%)")
 
+    def _spawn_hauler_debris(wreck):
+        """Спавнит осколки уничтоженного транспортника в текущую комнату."""
+        nonlocal debris_list
+        if not hauler_debris_sprites:
+            return
+        for debris_sprite in hauler_debris_sprites:
+            debris = ShipDebris(wreck.x, wreck.y, debris_sprite)
+            debris_list.append(debris)
+        # Убираем транспортник из объектов сектора и глобального списка
+        if current_sector is not None and wreck in current_sector.objects:
+            current_sector.objects.remove(wreck)
+        if wreck in generator.haulers:
+            generator.haulers.remove(wreck)
+
+    def _trigger_hauler_retaliation(room_x, room_y):
+        """Ставит в очередь отряд из 3 истребителей в комнату, где подбили транспортник.
+        Сам спавн происходит с задержкой (проверяется в игровом цикле)."""
+        # Не спавним второй отряд в одну и ту же комнату, пока там уже есть
+        # отряд из очереди
+        if any(q["room"] == (room_x, room_y) for q in hauler_retaliation_queue):
+            return
+        # Задержка ~4 секунды
+        arrive_at = pygame.time.get_ticks() + 4000
+        hauler_retaliation_queue.append({"room": (room_x, room_y), "arrive_at": arrive_at})
+        print(f"[HAULER] Отряд возмездия вызван в комнату ({room_x}, {room_y}) — прибудет через 4с")
+
+    def _process_hauler_retaliation_queue():
+        """Проверяет очередь отложенных отрядов и спавнит созревшие."""
+        from sprites import get_destroyer_sprites, get_destroyer_destroyed_sprite
+        now = pygame.time.get_ticks()
+        for entry in [e for e in hauler_retaliation_queue if e["arrive_at"] <= now]:
+            hauler_retaliation_queue.remove(entry)
+            room_x, room_y = entry["room"]
+
+            destroyer_idle, destroyer_anim = get_destroyer_sprites()
+            destroyer_destroyed = get_destroyer_destroyed_sprite()
+
+            target_sector = generator.get_sector(
+                room_x, room_y, asteroid_sprites,
+                wreck_sprite=wreck_sprite, planet_sprite=planet_sprite,
+                station_sprite=station_sprite
+            )
+            spawn_x = room_x * ROOM_WIDTH + ROOM_WIDTH // 2
+            spawn_y = room_y * ROOM_HEIGHT + ROOM_HEIGHT // 2
+
+            for i in range(3):
+                off_ang = (i * 2 * math.pi / 3) + random.uniform(0, 1)
+                fighter = DestroyerShip(
+                    x=spawn_x + math.cos(off_ang) * 200,
+                    y=spawn_y + math.sin(off_ang) * 200,
+                    idle_sprite=destroyer_idle,
+                    movement_sprites=destroyer_anim,
+                    sector_x=room_x, sector_y=room_y,
+                    room_width=ROOM_WIDTH, room_height=ROOM_HEIGHT,
+                )
+                fighter.set_sector(target_sector)
+                fighter.set_destroyed_sprite(destroyer_destroyed)
+                # Отряд патрулирует; время на «облёт комнаты» перед уходом
+                fighter.retaliation_timeout = pygame.time.get_ticks() + 20000
+                target_sector.objects.append(fighter)
+
+            if current_sector is not None and target_sector is current_sector:
+                print(f"[HAULER] Отряд из 3 истребителей атакует в комнате ({room_x}, {room_y})!")
+            else:
+                print(f"[HAULER] Отряд из 3 истребителей прибыл в комнату ({room_x}, {room_y})")
+
     def draw_minimap(screen, player, current_sector, debris_list, camera, time_offset):
         """Рисует мини-карту текущей комнаты в правом верхнем углу."""
         if player.on_planet_surface or current_sector is None:
@@ -566,10 +673,22 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
         def to_mm(wx, wy):
             return int((wx - room_ox) * scale), int((wy - room_oy) * scale)
 
-        # Астероиды
+        now = pygame.time.get_ticks()
+        # Стационарные объекты (астероиды, планеты, станции, осколки StaticShip):
+        # если хоть раз попали в обзор или были отсканированы — остаются навсегда.
+        # Движущиеся (корабли, амёбы, летающие осколки): исчезают через VIEW_REVEAL_MS.
+        def is_permanent_revealed(obj_key):
+            return obj_key in permanent_reveal
+
+        def is_moving_revealed(obj_key):
+            return view_reveal_times.get(obj_key, 0) > now - VIEW_REVEAL_MS
+
+        # Астероиды — стационарные: рисуем, если увидели хотя бы раз
         if current_sector.asteroids:
             for ast in current_sector.asteroids:
                 if getattr(ast, 'marked_for_removal', False):
+                    continue
+                if not is_permanent_revealed(id(ast)):
                     continue
                 mx, my = to_mm(ast.x, ast.y)
                 if 0 <= mx < mm_size and 0 <= my < mm_size:
@@ -582,12 +701,22 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
 
         # Объекты сектора
         for obj in current_sector.objects:
+            is_stationary = isinstance(obj, (StaticPlanet, Station, StaticShip))
+            if is_stationary:
+                revealed = is_permanent_revealed(id(obj))
+            else:
+                revealed = is_moving_revealed(id(obj))
+            if not revealed:
+                continue
             mx, my = to_mm(obj.x, obj.y)
             if not (0 <= mx < mm_size and 0 <= my < mm_size):
                 continue
 
-            if isinstance(obj, (ScoutShip, DestroyerShip)):
-                color = (0, 255, 0) if isinstance(obj, ScoutShip) else (255, 100, 0)
+            if isinstance(obj, (ScoutShip, DestroyerShip, CargoHauler)):
+                if isinstance(obj, CargoHauler):
+                    color = (255, 190, 60)  # оранжевый — транспортник
+                else:
+                    color = (0, 255, 0) if isinstance(obj, ScoutShip) else (255, 100, 0)
                 if getattr(obj, 'is_destroyed', False):
                     color = (70, 70, 70)
                 pygame.draw.circle(mm_surf, color, (mx, my), 3)
@@ -600,13 +729,29 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
             elif isinstance(obj, SpaceAmoeba):
                 pygame.draw.circle(mm_surf, (150, 150, 160), (mx, my), 4)
 
-        # Осколки
+        # Осколки (летающие) — движущиеся: исчезают через VIEW_REVEAL_MS
         for debris in debris_list:
             if getattr(debris, 'marked_for_removal', False):
+                continue
+            if not is_moving_revealed(id(debris)):
                 continue
             mx, my = to_mm(debris.x, debris.y)
             if 0 <= mx < mm_size and 0 <= my < mm_size:
                 pygame.draw.circle(mm_surf, (120, 100, 80), (mx, my), 2)
+
+        # --- ВОЛНА СКАНИРОВАНИЯ РАДАРОМ ---
+        if radar_scan_active:
+            # Радиус волны: 0 → сторона комнаты
+            wave_radius = radar_wave_progress * mm_size
+            wx = int((player.x - room_ox) * scale)  # центр вокруг игрока
+            wy = int((player.y - room_oy) * scale)
+            # Растущий круг-волна
+            pygame.draw.circle(mm_surf, (*HUD_GLOW, 120), (wx, wy), int(wave_radius), 1)
+            # Искры по кромке волны
+            for ang in range(0, 360, 15):
+                sxa = wx + math.cos(math.radians(ang)) * wave_radius
+                sya = wy + math.sin(math.radians(ang)) * wave_radius
+                pygame.draw.circle(mm_surf, (*HUD_NEON[:3], 200), (int(sxa), int(sya)), 1, 0)
 
         # Прямоугольник обзора камеры
         cam_x = (camera.x - room_ox) * scale
@@ -643,6 +788,7 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
     game_over_state = 0          # 0 = игра, 1 = ждём 3 секунды, 2 = экран «игра окончена»
     game_over_start_time = 0    # время начала отсчёта
     screen_dim_alpha = 0         # прозрачность затемнения
+    show_intro = True            # показываем сюжетное интро при старте
 
 
     while running:
@@ -660,11 +806,25 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
                 if event.key == pygame.K_F3:
                     show_scout_indicator = not show_scout_indicator
                     print(f"[DEBUG] Индикатор разведчика: {'ВКЛ' if show_scout_indicator else 'ВЫКЛ'}")
+                # Свежее нажатие E: ставим флаг «только что нажата».
+                # Он гасится после однократной обработки (или при KEYUP),
+                # поэтому меню/действия не повторяются, пока E удерживается.
+                if event.key == pygame.K_e:
+                    e_key_held = True
                 if event.key == pygame.K_ESCAPE:
                     if game_over_state == 2:
                         running = False
+                    elif show_intro:
+                        show_intro = False
                     else:
                         paused = not paused
+                if event.key == pygame.K_RETURN and show_intro:
+                    show_intro = False
+                    print("[INTRO] Пропуск сюжетного интро")
+            if event.type == pygame.KEYUP:
+                if event.key == pygame.K_e:
+                    # Клавиша отпущена — следующее нажатие будет «свежим».
+                    e_key_held = False
 
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 3:  # Правая кнопка — запуск ракеты
@@ -675,6 +835,51 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
                             running = False
                         continue
                     # --- ЛОГИКА КЛИКОВ ПО UI ---
+
+                    # 0.1 Меню ремонта собственного корабля (по E)
+                    if ship_repair_menu:
+                        # Клики по кнопкам модулей
+                        m_status = player.module_status()
+                        m_x = CAMERA_WIDTH // 2 - 150
+                        m_y = CAMERA_HEIGHT // 2 - 60
+                        btn_w, btn_h = 300, 34
+                        cur_y = m_y + 10
+                        for mod_id in ("fuel_leak", "radar", "hull"):
+                            info = m_status[mod_id]
+                            btn_rect = pygame.Rect(m_x, cur_y, btn_w, btn_h)
+                            if btn_rect.collidepoint(event.pos):
+                                if not info["repaired"]:
+                                    # Защита от повторного запуска дрона на тот же модуль
+                                    player_active = any(
+                                        d.target_ship is player and d.module_name == mod_id
+                                        and d.state != "DONE" and d.state != "RETURNING"
+                                        for d in repair_drones
+                                    )
+                                    if player_active:
+                                        print(f"[REPAIR] Модуль '{info['name']}' уже чинится дроном")
+                                    else:
+                                        # Списываем стоимость модуля
+                                        if not player.repair_module(mod_id):
+                                            # Не хватило ресурсов — не запускаем дрон
+                                            print(f"[REPAIR] Недостаточно ресурсов для {info['name']}")
+                                        else:
+                                            # Ресурсы списаны — запускаем дрона-ремонтника,
+                                            # который физически чинит модуль (как у осколка)
+                                            hooks = player.make_repair_hooks(mod_id)
+                                            if hooks is not None:
+                                                # Модули игрока чинятся за 10 секунд
+                                                new_drone = RepairDrone(
+                                                    player.x, player.y, player, mod_id,
+                                                    drone_sprite,
+                                                    return_target=player,
+                                                    read_integrity=hooks[0],
+                                                    write_integrity=hooks[1],
+                                                    duration_seconds=10,
+                                                )
+                                                repair_drones.append(new_drone)
+                                                print(f"[REPAIR] Дрон-ремонтник запущен на модуль '{info['name']}'")
+                            cur_y += btn_h + 6
+                        continue
 
                     # 0. Если открыт режим склада
                     if ui_mode == "storage" and ui_active and ui_target_wreck:
@@ -906,8 +1111,13 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
                 if keys[pygame.K_e]:
                     player.leave_wreck()
 
-        if (not ui_active and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and
-                keys[pygame.K_e]):
+        # Действие по E срабатывает ОДИН раз за каждое свежее нажатие (e_key_held).
+        # При удержании клавиши (даже когда добыча уже закончилась) меню НЕ открывается —
+        # нужно отпустить E и нажать заново. Добыча по зажатой E продолжается отдельно
+        # в цикле (player.is_collecting), поэтому здесь fresh-press достаточно.
+        if (e_key_held and not ui_active and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed):
+            # Гасим флаг сразу — действие произойдёт только один раз за нажатие.
+            e_key_held = False
 
             room_x = int(player.x // ROOM_WIDTH)
             room_y = int(player.y // ROOM_HEIGHT)
@@ -1025,6 +1235,18 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
                             if started:
                                 print(f"[ACTION] Добыча начата с {closest_asteroid.type_key}")
                             interaction_target = closest_asteroid
+                        else:
+                            # Рядом ничего нет — открываем контекстное меню ремонта
+                            # собственного корабля (утечка топлива, радиолокатор и т.д.)
+                            ship_repair_menu = True
+                            print("[ACTION] Открыто меню ремонта надстройки корабля")
+
+        # --- ПОДДЕРЖАНИЕ ЛАЗЕРА ДОБЫЧИ ---
+        # Пока идёт сбор ресурсов — белый лазер от корабля к астероиду остаётся
+        # даже после того, как клавиша E отпущена. Он исчезнет сам, когда добыча
+        # закончится (ресурсы добыты / вышли из зоны) или по нажатию Q.
+        if player.is_collecting and player.collecting_asteroid is not None:
+            interaction_target = player.collecting_asteroid
 
 
         # --- КНОПКА ОТКАТА (Q) ---
@@ -1037,6 +1259,16 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
             ui_mode = "wreck"
             print("[ACTION] Меню обломка закрыто")
 
+        # Отмена добычи по Q (лазер также исчезает — interaction_target обнулится ниже)
+        if keys[pygame.K_q] and player.is_collecting:
+            player.stop_collection()
+            interaction_target = None
+            print("[ACTION] Добыча отменена")
+
+        if keys[pygame.K_q] and ship_repair_menu:
+            ship_repair_menu = False
+            print("[ACTION] Меню ремонта корабля закрыто")
+
         if keys[pygame.K_q] and (player.is_docking or player.is_docked):
             player.stop_docking()
             print("[ACTION] Отстыковка от станции")
@@ -1046,7 +1278,7 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
             print("[ACTION] Выход в космос")
 
         # Вращение и ускорение — ТОЛЬКО в космосе
-        if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:
+        if not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active and not ship_repair_menu:
 
             if keys[pygame.K_a]:
                 player.rotate(-1)
@@ -1055,8 +1287,51 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
             if keys[pygame.K_w]:
                 player.accelerate()
 
+        # --- СКАНИРОВАНИЕ КОМНАТЫ РАДАРОМ (R) ---
+        now_ticks = pygame.time.get_ticks()
+        # Радар работает только в своей комнате; после сканирования — перезагрузка.
+        if (keys[pygame.K_r] and not player.on_planet_surface and not player.is_landing and
+                not player.is_docking and not player.is_docked and not player.is_destroyed and
+                not ui_active and not ship_repair_menu and player.radar_online and not radar_scan_active
+                and now_ticks >= radar_cooldown_until):
+            # Запускаем сканирование текущей комнаты
+            radar_wave_progress = 0.0
+            radar_scan_active = True
+            print("[RADAR] Сканирование комнаты запущено")
+        elif keys[pygame.K_r] and player.radar_online and now_ticks < radar_cooldown_until:
+            print(f"[RADAR] Радар перезаряжается... {max(0, (radar_cooldown_until - now_ticks) // 1000)}с")
+
+        # --- АНИМАЦИЯ ВОЛНЫ РАДАРА ---
+        if radar_scan_active and not paused:
+            radar_wave_progress += RADAR_WAVE_SPEED
+            if radar_wave_progress >= 1.0:
+                radar_wave_progress = 1.0
+                # Сканирование завершено: вскрываем все объекты комнаты.
+                # Стационарные — навсегда, движущиеся — на время VIEW_REVEAL_MS.
+                rad_sector = generator.get_sector(
+                    int(player.x // ROOM_WIDTH), int(player.y // ROOM_HEIGHT),
+                    asteroid_sprites, wreck_sprite=wreck_sprite,
+                    planet_sprite=planet_sprite, station_sprite=station_sprite)
+                rad_now = pygame.time.get_ticks()
+                if rad_sector is not None:
+                    all_objs = list(rad_sector.asteroids or []) + list(rad_sector.objects or []) + list(debris_list)
+                    for o in all_objs:
+                        if not hasattr(o, 'x') or not hasattr(o, 'y'):
+                            continue
+                        if isinstance(o, (Asteroid, StaticPlanet, Station, StaticShip)):
+                            permanent_reveal.add(id(o))
+                        else:
+                            view_reveal_times[id(o)] = rad_now
+                        # Сканирование радаром — признак внимания к транспортнику
+                        if isinstance(o, CargoHauler):
+                            o.mark_attention()
+                # Включаем перезагрузку радара (15 сек)
+                radar_cooldown_until = rad_now + RADAR_COOLDOWN_MS
+                radar_scan_active = False
+                print("[RADAR] Сканирование завершено, радар перезаряжается")
+
         # СТРЕЛЬБА (Пробел)
-        if keys[pygame.K_SPACE] and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:
+        if keys[pygame.K_SPACE] and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active and not ship_repair_menu:
             player.shoot(bullet_sprite)
 
         # --- ЛОГИКА ИГРЫ (физика, коллизии, генерация) ---
@@ -1101,8 +1376,15 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
         locked_target = None
         if current_sector and not player.on_planet_surface and not player.is_landing and not player.is_docking and not player.is_docked and not player.is_destroyed and not ui_active:
 
-            for obj in current_sector.objects:
-                if isinstance(obj, (ScoutShip, DestroyerShip)) and not obj.is_destroyed:
+            # Захват цели: враги текущей комнаты + глобальные транспортники (могут быть
+            # в соседней комнате, но видимы игроку).
+            lock_candidates = []
+            if current_sector and current_sector.objects:
+                lock_candidates.extend(current_sector.objects)
+            lock_candidates.extend(generator.haulers)
+
+            for obj in lock_candidates:
+                if isinstance(obj, (ScoutShip, DestroyerShip, CargoHauler)) and not obj.is_destroyed:
                     dx = obj.x - player.x
                     dy = obj.y - player.y
                     dist = math.hypot(dx, dy)
@@ -1193,19 +1475,32 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
                                 if frag is not None:
                                     new_fragments.append(frag)
                         break
-        # --- ПОПАДАНИЕ ПУЛЬ ПО АМЁБЕ ---
+        # --- ПОПАДАНИЕ ПУЛЬ ПО АМЁБЕ И ТРАНСПОРТНИКАМ ---
+        # Пули проверяют амёб/врагов текущей комнаты + все транспортники (глобально).
+        bullet_hit_targets = []
         if current_sector and current_sector.objects:
-            for bullet in player.bullets[:]:
-                if not bullet.is_active():
-                    continue
-                for obj in current_sector.objects:
-                    if isinstance(obj, SpaceAmoeba) and not obj.is_destroyed:
-                        if bullet.rect.colliderect(obj.rect):
-                            obj.take_damage(bullet.damage)
-                            if bullet in player.bullets:
-                                player.bullets.remove(bullet)
-                                explosions.append(Explosion(bullet.x, bullet.y, sparks_sprites))
-                            break
+            bullet_hit_targets.extend(current_sector.objects)
+        bullet_hit_targets.extend(generator.haulers)
+
+        for bullet in player.bullets[:]:
+            if not bullet.is_active():
+                continue
+            for obj in bullet_hit_targets:
+                if isinstance(obj, (SpaceAmoeba, CargoHauler)) and not obj.is_destroyed:
+                    if bullet.rect.colliderect(obj.rect):
+                        hit_target = obj
+                        was_destroyed = hit_target.is_destroyed
+                        hit_target.take_damage(bullet.damage)
+                        if bullet in player.bullets:
+                            player.bullets.remove(bullet)
+                            explosions.append(Explosion(bullet.x, bullet.y, sparks_sprites))
+                        # Транспортник только что уничтожен — осколки + отряд истребителей
+                        if (isinstance(hit_target, CargoHauler)
+                                and not was_destroyed and hit_target.is_destroyed):
+                            _spawn_hauler_debris(hit_target)
+                            ax, ay = getattr(hit_target, 'attack_room', (0, 0))
+                            _trigger_hauler_retaliation(ax, ay)
+                        break
 
         # --- ОБНОВЛЕНИЕ РАКЕТ ---
         for rocket in rockets[:]:
@@ -1235,12 +1530,24 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
                     elif isinstance(target, ScoutShip) and scout_debris_sprites:
                         debris_sprites = scout_debris_sprites
 
+                    elif isinstance(target, CargoHauler):
+                        # Транспортник уничтожен ракетой: осколки + отряд истребителей
+                        if hauler_debris_sprites:
+                            debris_sprites = hauler_debris_sprites
+                        # Вызываем отряд возмездия в комнате, где произошло нападение
+                        ax, ay = getattr(target, 'attack_room', (0, 0))
+                        _trigger_hauler_retaliation(ax, ay)
+                        print("[HAULER] Транспортник уничтожен ракетой — вызван отряд!")
+
                     if debris_sprites:
                         for debris_sprite in debris_sprites:
                             debris = ShipDebris(target.x, target.y, debris_sprite)
                             debris_list.append(debris)
                         if current_sector and target in current_sector.objects:
                             current_sector.objects.remove(target)
+                        # Уничтоженный транспортник убираем и из глобального списка
+                        if isinstance(target, CargoHauler) and target in generator.haulers:
+                            generator.haulers.remove(target)
 
                 rockets.remove(rocket)
             elif not rocket.is_active():
@@ -1434,6 +1741,25 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
                 if hasattr(current_sector, 'objects') and current_sector.objects:
                     all_objects.extend(current_sector.objects)
 
+            # Синхронизируем глобальный список транспортников с генератором
+            global_haulers[:] = [h for h in generator.haulers if not h.is_destroyed]
+
+            # Обрабатываем отложенные отряды возмездия (прибытие истребителей)
+            if not paused:
+                _process_hauler_retaliation_queue()
+
+                # Обновляем все транспортники независимо от комнаты игрока
+                for h in global_haulers[:]:
+                    h.update(target=player)
+                    # Транспортник исчезает, если игрок в течение минуты его
+                    # не сканировал радаром и не преследовал/не обстреливал.
+                    if pygame.time.get_ticks() - h.last_attention_time > h.vanishing_timeout:
+                        if h in generator.haulers:
+                            generator.haulers.remove(h)
+                        owner_sector = getattr(h, 'sector', None)
+                        if owner_sector is not None and h in owner_sector.objects:
+                            owner_sector.objects.remove(h)
+
             for obj in all_objects:
                 if isinstance(obj, list):
                     continue
@@ -1445,6 +1771,18 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
                 if hasattr(obj, 'update') and not paused:
                     if isinstance(obj, DestroyerShip):
                         obj.update(target=player)
+                        # Отряд возмездия: если игрок не в комнате, истребители
+                        # некоторое время патрулируют, затем «улетают обратно».
+                        if getattr(obj, 'retaliation_timeout', None):
+                            if (pygame.time.get_ticks() > obj.retaliation_timeout
+                                    and player is not None
+                                    and not (obj.room_left <= player.x <= obj.room_right
+                                             and obj.room_top <= player.y <= obj.room_bottom)):
+                                # Истребители улетают — удаляем из сектора
+                                owner_sector = getattr(obj, 'sector', None)
+                                if owner_sector is not None and obj in owner_sector.objects:
+                                    owner_sector.objects.remove(obj)
+                                    print(f"[HAULER] Отряд улетел из комнаты ({obj.room_left // ROOM_WIDTH}, {obj.room_top // ROOM_HEIGHT}) — игрока нет")
                     elif isinstance(obj, SpaceAmoeba):
                         obj.update(target=player)
                     else:
@@ -1474,6 +1812,14 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
                     parked_img = obj.parked_sprite
                     parked_rect = parked_img.get_rect(center=(psx, psy))
                     screen.blit(parked_img, parked_rect)
+
+            # --- ОТРИСОВКА ТРАНСПОРТНИКОВ (всегда, независимо от комнаты игрока) ---
+            # Транспортники летят сквозь комнаты и не должны пропадать из виду,
+            # покидая комнату. Рисуем их отдельно поверх объектов комнаты.
+            for h in global_haulers:
+                if h.is_destroyed:
+                    continue
+                h.draw(screen, camera)
 
             # --- СЕРАЯ ОКРУЖНОСТЬ ВОКРУГ MOD04 АСТЕРОИДОВ ---
             if current_sector and current_sector.asteroids:
@@ -1573,7 +1919,7 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
             # Полоса прогресса ремонта (если активен дрон-ремонтник)
             h_time = pygame.time.get_ticks() / 1000.0
             for rd in repair_drones:
-                if rd.target_ship and not rd.target_ship.is_disassembled:
+                if rd.target_ship and not getattr(rd.target_ship, 'is_disassembled', False):
                     draw_repair_progress_bar(screen, rd.target_ship, repair_drones, camera, h_time)
                     break
 
@@ -1685,6 +2031,61 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
             # Но мы УЖЕ нарисовали StaticShip (wreck) в цикле all_objects выше.
             # Благодаря board_wreck(), у wreck теперь спрайт игрока (_base_sprite = player.idle_sprite).
             # Визуально это выглядит как пересадка.
+
+            # --- КОНТЕКСТНОЕ МЕНЮ РЕМОНТА КОРАБЛЯ (по клавише E) ---
+            if ship_repair_menu:
+                # Затемнение и рамка
+                menu_w, menu_h = 340, 240
+                m_x = CAMERA_WIDTH // 2 - menu_w // 2
+                m_y = CAMERA_HEIGHT // 2 - menu_h // 2
+
+                m_bg = pygame.Surface((menu_w, menu_h), pygame.SRCALPHA)
+                m_bg.fill((10, 18, 30, 235))
+                pygame.draw.rect(m_bg, (*HUD_NEON[:3], 180), (0, 0, menu_w, menu_h), 2)
+                screen.blit(m_bg, (m_x, m_y))
+
+                m_title = font_ui.render("МЕНЮ РЕМОНТА НАДСТРОЙКИ", True, HUD_NEON[:3])
+                screen.blit(m_title, (m_x + 20, m_y + 12))
+
+                m_status = player.module_status()
+                btn_x = m_x + 20
+                btn_w = menu_w - 40
+                btn_h = 34
+                cur_y = m_y + 48
+                font_btn = pygame.font.SysFont("consolas", 14, bold=True)
+
+                for mod_id in ("fuel_leak", "radar", "hull"):
+                    info = m_status[mod_id]
+                    # Проверяем, не занят ли модуль активным дроном-ремонтником
+                    mod_drone_active = any(
+                        d.target_ship is player and d.module_name == mod_id
+                        and d.state != "DONE" and d.state != "RETURNING"
+                        for d in repair_drones
+                    )
+                    # Кнопка
+                    if info["repaired"]:
+                        color = (120, 200, 130)  # зелёный — починено
+                        state_txt = "OK"
+                    elif mod_drone_active:
+                        color = (200, 200, 120)  # жёлтый — в процессе ремонта
+                        state_txt = "ДРОН В ПУТИ..."
+                    else:
+                        needs = " / ".join(f"{res}:{amt}" for res, amt in info["cost"].items())
+                        has = all(player.inventory.get(res, 0) >= amt for res, amt in info["cost"].items())
+                        color = (120, 255, 120) if has else (200, 120, 120)
+                        state_txt = needs
+                        # Для корпуса дополнительно показываем текущее HP
+                        if mod_id == "hull":
+                            hp_pct = info.get("hp_pct", 0)
+                            state_txt = f"Hull {hp_pct}%  {needs}"
+                    draw_hologram_button(screen, info["name"], btn_x, cur_y, btn_w, btn_h, h_time)
+                    # Стоимость/состояние
+                    st = font_btn.render(state_txt, True, color)
+                    screen.blit(st, (btn_x + btn_w + 8, cur_y + 8))
+                    cur_y += btn_h + 6
+
+                hint = font_btn.render("Клик по модулю — ремонт. Q — закрыть", True, (180, 190, 210))
+                screen.blit(hint, (btn_x, cur_y + 4))
 
             # --- DEBUG: ИНДИКАТОР НАПРАВЛЕНИЯ ---
             if show_scout_indicator:
@@ -1818,6 +2219,30 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
             screen.blit(label_surf, label_rect)
         # --- МИНИ-КАРТА ---
         h_time = pygame.time.get_ticks() / 1000.0
+        # Поле зрения: объекты в пределах обзора камеры запоминаем как «виденные».
+        # Стационарные тела (астероиды, планеты, станции, осколки) — навсегда,
+        # движущиеся (корабли, амёбы, летающие осколки) — только на время.
+        cam_left = camera.x
+        cam_top = camera.y
+        cam_right = camera.x + CAMERA_WIDTH
+        cam_bottom = camera.y + CAMERA_HEIGHT
+        now_ms = pygame.time.get_ticks()
+        if not player.on_planet_surface and current_sector is not None and not paused:
+            reveal_objs = []
+            if current_sector.asteroids:
+                reveal_objs.extend(current_sector.asteroids)
+            if current_sector.objects:
+                reveal_objs.extend(current_sector.objects)
+            reveal_objs.extend(debris_list)
+            for o in reveal_objs:
+                if not hasattr(o, 'x') or not hasattr(o, 'y'):
+                    continue
+                if cam_left - 50 <= o.x <= cam_right + 50 and cam_top - 50 <= o.y <= cam_bottom + 50:
+                    if isinstance(o, (Asteroid, StaticPlanet, Station, StaticShip)):
+                        permanent_reveal.add(id(o))
+                    else:
+                        view_reveal_times[id(o)] = now_ms
+
         draw_minimap(screen, player, current_sector, debris_list, camera, h_time)
 
         # --- ЭКРАН GAME OVER ---
@@ -1924,6 +2349,31 @@ pilot_button_rect = pygame.Rect(0, 0, 0, 0)
             save_text_rect = save_text.get_rect(center=(btn_w // 2, btn_h // 2))
             save_surf.blit(save_text, save_text_rect)
             screen.blit(save_surf, (btn_x, btn_y_save))
+
+        # --- СЮЖЕТНОЕ ИНТРО (заставка при старте) ---
+        if show_intro:
+            intro_ov = pygame.Surface((CAMERA_WIDTH, CAMERA_HEIGHT), pygame.SRCALPHA)
+            intro_ov.fill((0, 0, 10, 235))
+            screen.blit(intro_ov, (0, 0))
+
+            it_font = pygame.font.SysFont("consolas", 15, bold=True)
+            overlay_h = 30 + (len(GAME_INTRO_TEXT) * 22)
+            box_x = 120
+            box_y = (CAMERA_HEIGHT - overlay_h) // 2
+            box_w = CAMERA_WIDTH - 240
+
+            intro_box = pygame.Surface((box_w, overlay_h), pygame.SRCALPHA)
+            intro_box.fill((10, 18, 34, 220))
+            pygame.draw.rect(intro_box, (*HUD_NEON[:3], 160), (0, 0, box_w, overlay_h), 2)
+            screen.blit(intro_box, (box_x, box_y))
+
+            for i, line in enumerate(GAME_INTRO_TEXT):
+                color = (255, 230, 180) if i == len(GAME_INTRO_TEXT) - 1 else (220, 225, 235)
+                if i == 0:
+                    ls = it_font.render(line, True, (255, 220, 100))
+                else:
+                    ls = it_font.render(line, True, color)
+                screen.blit(ls, (box_x + 30, box_y + 24 + i * 22))
 
         pygame.display.flip()
 

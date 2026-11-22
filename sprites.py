@@ -226,6 +226,27 @@ def get_freight_vanguard_debris_sprites():
 
 def get_crystal_sprite():
     return load_image("resources/crystal.png")
+
+def get_hauler_sprites():
+    """Загружает спрайты транспортника класса 4 (hauler_idle + anim1..3)."""
+    folder = "ships/class_4"
+    idle = load_image(f"{folder}/hauler_idle.png")
+    movement = [load_image(f"{folder}/hauler_anim{i}.png") for i in range(1, 4)]
+    if not movement:
+        movement = [idle]
+    return idle, movement
+
+def get_hauler_destroyed_sprite():
+    """Загружает спрайт уничтоженного транспортника."""
+    return load_image("ships/class_4/hauler_destroyed.png")
+
+def get_hauler_debris_sprites():
+    """Загружает осколки транспортника (после уничтожения)."""
+    sprites = []
+    for i in range(1, 4):
+        path = f"ships/class_4/hauler_debris_{i}.png"
+        sprites.append(load_image(path))
+    return sprites
 def get_wreck_repair_sprites():
     """Загружает спрайты стадий ремонта обломка (20% → 90% → idle 100%)."""
     folder = "ships/class_3"

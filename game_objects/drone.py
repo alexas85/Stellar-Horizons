@@ -172,7 +172,13 @@ class RepairDrone:
     """
     BASE_REPAIR_TIME = 3600 * 5  # 30 секунд при 60 FPS на 100% ремонта
 
-    def __init__(self, start_x, start_y, target_ship, module_name, drone_sprite, return_target=None, repair_amount=None):
+    def __init__(self, start_x, start_y, target_ship, module_name, drone_sprite, return_target=None, repair_amount=None,
+                 read_integrity=None, write_integrity=None, duration_seconds=None):
+        # read_integrity()/write_integrity(v): необязательные хуки для целей,
+        # у которых модули — не словарь .modules (например, у игрока — булевы поля).
+        # duration_seconds — опциональная фиксированная длительность ремонта (в секундах).
+        self.read_integrity = read_integrity
+        self.write_integrity = write_integrity
 
         self.x = start_x
         self.y = start_y
@@ -186,8 +192,15 @@ class RepairDrone:
 
         # Параметры движения
         # Вычисляем «безопасный» радиус: половина меньшего размера спрайта, но не больше 60
-        tw = target_ship.sprite.get_width()
-        th = target_ship.sprite.get_height()
+        # У осколков спрайт лежит в .sprite, у игрока — в original_image/idle_sprite.
+        target_sprite = getattr(target_ship, 'sprite', None)
+        if target_sprite is None:
+            target_sprite = getattr(target_ship, 'original_image', None)
+        if target_sprite is None:
+            target_sprite = getattr(target_ship, 'idle_sprite', None)
+        self.target_sprite = target_sprite
+        tw = target_sprite.get_width()
+        th = target_sprite.get_height()
         max_radius = min(tw, th) // 2
         self.orbit_radius = max(10, max_radius // 2)  # примерно четверть от половины → внутри спрайта
         self.fly_speed = 2.0
@@ -205,14 +218,20 @@ class RepairDrone:
         self.current_weld_pos = None
 
         # Параметры ремонта
-        current_integrity = target_ship.modules.get(module_name, 0)
+        if self.read_integrity is not None:
+            current_integrity = self.read_integrity() or 0
+        else:
+            current_integrity = target_ship.modules.get(module_name, 0)
         if repair_amount is not None:
             needed_percent = repair_amount
         else:
             needed_percent = 100 - current_integrity
         self.repair_amount = needed_percent
         self.target_integrity = min(100, current_integrity + needed_percent)
-        self.total_duration = max(30, int((needed_percent / 100.0) * self.BASE_REPAIR_TIME))
+        if duration_seconds is not None:
+            self.total_duration = max(30, int(duration_seconds * 60))
+        else:
+            self.total_duration = max(30, int((needed_percent / 100.0) * self.BASE_REPAIR_TIME))
 
         # Эффект луча
         self.spark_timer = 0
@@ -223,10 +242,17 @@ class RepairDrone:
         self.fade_timer = 0
         self.fade_duration = 30
 
+    def _apply_integrity(self, value):
+        """Записывает новую «целостность» модуля через hook или в словарь modules."""
+        if self.write_integrity is not None:
+            self.write_integrity(value)
+        else:
+            self.target_ship.modules[self.module_name] = value
+
     def _pick_new_weld_point(self):
         """Выбирает случайную точку ВНУТРИ спрайта корабля-обломка."""
-        tw = self.target_ship.sprite.get_width()
-        th = self.target_ship.sprite.get_height()
+        tw = self.target_sprite.get_width()
+        th = self.target_sprite.get_height()
 
         # Смещаем точку на случайное расстояние внутри размеров спрайта
         offset_x = random.uniform(-tw / 2, tw / 2)
@@ -286,7 +312,7 @@ class RepairDrone:
             # --- ГЛАВНАЯ ПРОВЕРКА: ЗАВЕРШЕНИЕ РЕМОНТА ---
             # Делаем её самой первой, чтобы дрон сразу улетел, как только время вышло
             if self.elapsed_time >= self.total_duration:
-                self.target_ship.modules[self.module_name] = self.target_integrity
+                self._apply_integrity(self.target_integrity)
                 print(
                     f"[SUCCESS] Модуль '{self.module_name}' отремонтирован до {int(self.target_integrity)}%! Дрон возвращается.")
                 self.state = "RETURNING"
@@ -319,9 +345,12 @@ class RepairDrone:
 
                 # Расчет ремонта
                 repair_per_frame = self.repair_amount / self.total_duration
-                current_integrity = self.target_ship.modules.get(self.module_name, 0)
+                if self.read_integrity is not None:
+                    current_integrity = self.read_integrity() or 0
+                else:
+                    current_integrity = self.target_ship.modules.get(self.module_name, 0)
                 new_integrity = min(self.target_integrity, current_integrity + repair_per_frame)
-                self.target_ship.modules[self.module_name] = new_integrity
+                self._apply_integrity(new_integrity)
 
                 if self.substate_timer >= self.weld_duration:
                     self.repair_substate = "moving_to_weld"
@@ -377,8 +406,8 @@ class RepairDrone:
         # Отрисовка луча сварки (ТОЛЬКО во время фазы welding)
         if self.state == "REPAIRING" and self.repair_substate == "welding":
             # Точка попадания луча — случайная внутри спрайта цели
-            target_w = self.target_ship.sprite.get_width() / 2
-            target_h = self.target_ship.sprite.get_height() / 2
+            target_w = self.target_sprite.get_width() / 2
+            target_h = self.target_sprite.get_height() / 2
             hit_x = self.target_ship.x + random.uniform(-target_w, target_w)
             hit_y = self.target_ship.y + random.uniform(-target_h, target_h)
 

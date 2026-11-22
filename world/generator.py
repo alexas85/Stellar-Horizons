@@ -4,12 +4,22 @@ from config import ROOM_WIDTH, ROOM_HEIGHT
 from game_objects.amoeba import SpaceAmoeba
 import random
 import math
+import pygame
 
 
 
 class WorldGenerator:
     def __init__(self):
         self.sectors = {}
+        # Глобальный список транспортников (обновляются и рисуются всегда)
+        self.haulers = []
+
+        # --- ТРАНСПОРТНИКИ (тестовый спавн) ---
+        # ТЕСТОВОЕ РАСПОЛОЖЕНИЕ: все транспортники в комнате (-2, -2),
+        # чтобы их было легко найти. 1 + 2 + 3 = 6 штук в одной комнате.
+        # Конфиг: { (x,y): count }
+        self.hauler_rooms = {(-2, -2): 6}
+        print(f"[HAULER] Транспортники в комнатах (тест): {self.hauler_rooms}")
 
     @staticmethod
     def calculate_mass(size_px, type_key=""):
@@ -22,15 +32,11 @@ class WorldGenerator:
             sector = Sector(x, y)
 
             if x == 0 and y == 0:
-                sector.generate_belt(
+                # Стартовая комната — пучок астероидов (не пояс), чтобы было
+                # больше места и обзорнее, чем в окружении.
+                sector.generate_clustered_field(
                     asteroid_sprites=asteroid_sprites,
-                    inner_radius=400,
-                    outer_radius=800,
-                    counts={
-                        "ast_mod01_s16": 35,
-                        "ast_mod01_s32": 25,
-                        "ast_mod01_s64": 20
-                    },
+                    total_count=40,
                     wreck_sprite=wreck_sprite,
                     planet_sprite=planet_sprite,
                     station_sprite=station_sprite
@@ -55,6 +61,54 @@ class WorldGenerator:
                 )
                 sector.objects.append(amoeba)
                 amoeba.set_sector(sector)
+
+            # --- ТРАНСПОРТНИКИ (CargoHauler) ---
+            # Спавнятся в комнате в момент, когда игрок залетает в неё.
+            if (x, y) in self.hauler_rooms:
+                from game_objects.cargo_hauler import CargoHauler
+                from sprites import get_hauler_sprites, get_hauler_destroyed_sprite
+
+                count = self.hauler_rooms[(x, y)]
+                hauler_idle, hauler_anim = get_hauler_sprites()
+                hauler_destroyed = get_hauler_destroyed_sprite()
+                group_id = (x, y)  # все транспортники одной комнаты — одна группа
+
+                # Общее направление группы (случайный вектор)
+                heading_ang = random.uniform(0, 2 * math.pi)
+                group_heading = pygame.math.Vector2(math.cos(heading_ang), math.sin(heading_ang))
+
+                # Общая позиция старта (центр комнаты со смещением)
+                start_x = x * ROOM_WIDTH + ROOM_WIDTH // 2
+                start_y = y * ROOM_HEIGHT + ROOM_HEIGHT // 2
+
+                for i in range(count):
+                    # Разводим транспортники веером от центра, чтобы они не совпадали
+                    off_ang = group_id[0] * 1.3 + i * (2 * math.pi / max(1, count))
+                    hx = start_x + math.cos(off_ang) * (160 + i * 40)
+                    hy = start_y + math.sin(off_ang) * (160 + i * 40)
+
+                    hauler = CargoHauler(
+                        x=hx, y=hy,
+                        idle_sprite=hauler_idle,
+                        movement_sprites=hauler_anim,
+                        sector_x=x, sector_y=y,
+                        room_width=ROOM_WIDTH, room_height=ROOM_HEIGHT,
+                        group_id=group_id,
+                    )
+                    hauler.set_sector(sector)
+                    hauler.set_destroyed_sprite(hauler_destroyed)
+                    hauler.group_heading = group_heading
+                    hauler.generator = self
+                    # Запоминаем спрайты для отложенного создания соседних секторов
+                    # при перелёте транспортника между комнатами.
+                    hauler.spawn_sprites = (asteroid_sprites, wreck_sprite, planet_sprite, station_sprite)
+                    hauler.heading_angle = math.degrees(math.atan2(group_heading.y, group_heading.x))
+                    sector.objects.append(hauler)
+                    # Регистрируем в глобальном списке
+                    if hauler not in self.haulers:
+                        self.haulers.append(hauler)
+
+                print(f"[HAULER] {count} транспортник(а/ов) добавлено в комнату ({x}, {y})")
             # Мелкие амёбы без щупалец в комнате (0, -2)
             if x == 0 and y == -2:
                 amoeba_count = random.randint(10, 30)
