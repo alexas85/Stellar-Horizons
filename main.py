@@ -839,14 +839,19 @@ def main():
                     # 0.1 Меню ремонта собственного корабля (по E)
                     if ship_repair_menu:
                         # Клики по кнопкам модулей
+                        # Координаты СОВПАДАЮТ с отрисовкой меню (см. блок ОТРИСОВКА):
+                        # menu_w=340, menu_h=240, центр экрана; кнопки от m_y+48, шаг btn_h+6.
                         m_status = player.module_status()
-                        m_x = CAMERA_WIDTH // 2 - 150
-                        m_y = CAMERA_HEIGHT // 2 - 60
-                        btn_w, btn_h = 300, 34
-                        cur_y = m_y + 10
+                        menu_w, menu_h = 340, 240
+                        m_x = CAMERA_WIDTH // 2 - menu_w // 2
+                        m_y = CAMERA_HEIGHT // 2 - menu_h // 2
+                        btn_x = m_x + 20
+                        btn_w = menu_w - 40
+                        btn_h = 34
+                        cur_y = m_y + 48
                         for mod_id in ("fuel_leak", "radar", "hull"):
                             info = m_status[mod_id]
-                            btn_rect = pygame.Rect(m_x, cur_y, btn_w, btn_h)
+                            btn_rect = pygame.Rect(btn_x, cur_y, btn_w, btn_h)
                             if btn_rect.collidepoint(event.pos):
                                 if not info["repaired"]:
                                     # Защита от повторного запуска дрона на тот же модуль
@@ -1052,7 +1057,7 @@ def main():
                             engines_ok = ui_target_wreck.modules.get("Двигатель", 0) >= 30
 
                             if hull_ok and engines_ok:
-                                player.board_wreck(ui_target_wreck)
+                                player.board_wreck_legacy(ui_target_wreck)
                                 ui_active = False
                                 ui_target_wreck = None
                                 print("Игрок успешно пересел!")
@@ -1109,7 +1114,7 @@ def main():
             # Выход из обломка (клавиша E)
             if player.is_boarded and player.boarded_wreck:
                 if keys[pygame.K_e]:
-                    player.leave_wreck()
+                    player.leave_wreck_legacy()
 
         # Действие по E срабатывает ОДИН раз за каждое свежее нажатие (e_key_held).
         # При удержании клавиши (даже когда добыча уже закончилась) меню НЕ открывается —
@@ -1711,9 +1716,10 @@ def main():
             target_x = player.x - CAMERA_WIDTH // 2
             target_y = player.y - CAMERA_HEIGHT // 2
 
-            # В космосе тоже можно сделать плавность, если нужно
-            camera.x += (target_x - camera.x) * CAMERA_SPEED
-            camera.y += (target_y - camera.y) * CAMERA_SPEED
+            # В космосе камера мгновенно следует за игроком (корабль в центре),
+            # чтобы управление не ощущалось «резким» из-за отставания камеры
+            camera.x = target_x
+            camera.y = target_y
 
         # --- ОТРИСОВКА ---
         if player.on_planet_surface:
@@ -1727,8 +1733,13 @@ def main():
                 stars = backgrounds["stars"]
                 w, h = stars.get_size()
                 speed = 0.4
-                offset_x = -int(camera.x * speed)
-                offset_y = -int(camera.y * speed)
+                # Берём смещение по модулю размера тайла: иначе при большом
+                # смещении камеры часть экрана остаётся не покрытой тайлом,
+                # и видна заливочная полоса (0,0,20) — «синяя граница» между
+                # комнатами в колонке x = -3. Модуль всегда закрывает экран
+                # звёздами, второй тайл по циклу (-1..1) покрывает остальное.
+                offset_x = -int(camera.x * speed) % w
+                offset_y = -int(camera.y * speed) % h
 
                 for x in range(-1, 2):
                     for y in range(-1, 2):

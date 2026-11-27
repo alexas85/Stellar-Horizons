@@ -2,6 +2,7 @@
 import pygame
 import math
 import random
+from config import GAME_SPEED
 
 
 class SpaceAmoeba:
@@ -203,8 +204,8 @@ class SpaceAmoeba:
             dist = math.hypot(dx, dy)
 
             if dist > 0:
-                self.velocity_x += (dx / dist) * self.acceleration
-                self.velocity_y += (dy / dist) * self.acceleration
+                self.velocity_x += (dx / dist) * self.acceleration * GAME_SPEED
+                self.velocity_y += (dy / dist) * self.acceleration * GAME_SPEED
 
                 cur_speed = math.hypot(self.velocity_x, self.velocity_y)
                 if cur_speed > self.aggressive_speed:
@@ -221,8 +222,8 @@ class SpaceAmoeba:
             if dist < 60:
                 self._pick_new_target()
             elif dist > 0:
-                self.velocity_x += (dx / dist) * self.acceleration
-                self.velocity_y += (dy / dist) * self.acceleration
+                self.velocity_x += (dx / dist) * self.acceleration * GAME_SPEED
+                self.velocity_y += (dy / dist) * self.acceleration * GAME_SPEED
 
             speed = math.hypot(self.velocity_x, self.velocity_y)
             if speed > self.max_speed:

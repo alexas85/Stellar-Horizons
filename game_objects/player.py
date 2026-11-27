@@ -6,7 +6,7 @@ from config import (SHIP_CLASSES, FUEL_CONSUMPTION_PER_SEC, ENERGY_PER_SHOT,
                     ENERGY_REGEN_PER_SEC, WRECK_PLAYER_MAX_RESOURCE,
                     START_HP_FRACTION, START_FUEL_FRACTION,
                     COLLISION_DAMAGE_MIN_SIZE, COLLISION_DAMAGE_SPEED_THRESHOLD,
-                    COLLISION_DAMAGE_PER_SPEED)
+                    COLLISION_DAMAGE_PER_SPEED, GAME_SPEED)
 from game_objects.bullet import Bullet
 
 
@@ -160,7 +160,8 @@ class PlayerShip:
             return  # нет топлива — нет ускорения
         rad = math.radians(self.angle)
         direction = pygame.math.Vector2(math.cos(rad), math.sin(rad))
-        self.velocity += direction * self.active_acceleration
+        # Глобальный множитель замедления (GAME_SPEED) влияет на ускорение
+        self.velocity += direction * (self.active_acceleration * GAME_SPEED)
         if self.velocity.length() > self.active_max_speed:
             self.velocity.scale_to_length(self.active_max_speed)
         self.is_thrusting = True
@@ -433,7 +434,7 @@ class PlayerShip:
             x=self.x,
             y=self.y,
             angle=self.angle,
-            speed=12,
+            speed=24,
             max_distance=300,
             base_velocity=self.velocity
         )
@@ -880,8 +881,8 @@ class PlayerShip:
             pygame.draw.line(surface, (255, 255, 255), (draw_x, draw_y), (tx, ty), 3)
             pygame.draw.circle(surface, (255, 255, 255), (int(tx), int(ty)), 6, 2)
 
-    def board_wreck(self, wreck_obj):
-        """Игрок садится в обломок"""
+    def board_wreck_legacy(self, wreck_obj):
+        """Старый механизм пересадки (is_boarded): игрок садится в обломок."""
         if self.is_boarded:
             return
 
@@ -910,8 +911,8 @@ class PlayerShip:
 
         print(f"[BOARDING] Игрок сел в {wreck_obj.ship_name}")
 
-    def leave_wreck(self):
-        """Игрок покидает обломок"""
+    def leave_wreck_legacy(self):
+        """Старый механизм выхода (is_boarded): игрок покидает обломок."""
         if not self.is_boarded or self.boarded_wreck is None:
             return
 

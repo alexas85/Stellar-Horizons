@@ -1,5 +1,6 @@
 import pygame
 import math
+from config import GAME_SPEED
 
 # --- DEBUG ---
 DEBUG_WARDEN = False  # True — рисует капсулу, safety-радиусы и границы кластеров
@@ -367,7 +368,7 @@ class WardenShip:
 
         rad = math.radians(self.angle)
         direction = pygame.math.Vector2(math.cos(rad), math.sin(rad))
-        self.velocity += direction * self.acceleration
+        self.velocity += direction * (self.acceleration * GAME_SPEED)
 
         speed = self.velocity.length()
         if speed > self.max_speed:

@@ -2,7 +2,7 @@
 import pygame
 import math
 import random
-from config import SHIP_ACCELERATION, SHIP_FRICTION
+from config import SHIP_ACCELERATION, SHIP_FRICTION, GAME_SPEED
 from game_objects.bullet import Bullet
 
 
@@ -213,7 +213,7 @@ class ScoutShip:
             self.rotate_towards(effective_angle)
             rad = math.radians(self.angle)
             direction = pygame.math.Vector2(math.cos(rad), math.sin(rad))
-            self.velocity += direction * SHIP_ACCELERATION
+            self.velocity += direction * (SHIP_ACCELERATION * GAME_SPEED)
             if self.velocity.length() > self.max_speed:
                 self.velocity.scale_to_length(self.max_speed)
             self.is_thrusting = True
@@ -395,7 +395,9 @@ class DestroyerShip(ScoutShip):
 
         # Боевые параметры
         self.detect_range = 600      # дистанция обнаружения игрока
-        self.keep_distance = 150     # минимальная дистанция, ближе не подлетает
+        self.keep_distance = 160     # желаемая дистанция боя (ближе не подлетает)
+        self.strafe_side = 1         # направление крена в бою (1 = вправо, -1 = влево)
+        self._next_strafe_change = 0 # время смены направления крена
         self.fire_cooldown = 0
         self.cooldown_time = 400    # мс между выстрелами
         self.bullets = []
@@ -465,17 +467,41 @@ class DestroyerShip(ScoutShip):
         target_angle = math.degrees(math.atan2(dy, dx))
         self.rotate_towards(target_angle)
 
-        # Движение: если далеко — ускоряемся, если близко — тормозим
-        if dist > self.keep_distance:
-            rad = math.radians(self.angle)
-            direction = pygame.math.Vector2(math.cos(rad), math.sin(rad))
-            self.velocity += direction * SHIP_ACCELERATION
-            if self.velocity.length() > self.max_speed:
-                self.velocity.scale_to_length(self.max_speed)
+        # Движение: если далеко — ускоряемся к игроку, на дистанции боя —
+        # крен (страйф вправо/влево), если игрок слишком близко — отходим назад.
+        now = pygame.time.get_ticks()
+        if now > self._next_strafe_change:
+            # Меняем направление крена раз в 1.2–2.4 с (случайно)
+            self.strafe_side = random.choice([1, -1])
+            self._next_strafe_change = now + random.randint(1200, 2400)
+
+        # Крен-вектор — боковое движение поперёк курса на игрока
+        forward_rad = math.radians(self.angle)
+        forward = pygame.math.Vector2(math.cos(forward_rad), math.sin(forward_rad))
+        strafe = pygame.math.Vector2(-forward.y, forward.x) * self.strafe_side
+
+        # Прямая к игроку (для оценки «слишком близко» независимо от угла носа)
+        to_player_rad = math.radians(math.degrees(math.atan2(dy, dx)))
+        to_player = pygame.math.Vector2(math.cos(to_player_rad), math.sin(to_player_rad))
+
+        accel = SHIP_ACCELERATION * GAME_SPEED
+        if dist > self.keep_distance + 30:
+            # Далеко — летим к игроку, слегка смещаясь вбок
+            self.velocity += forward * accel
+            self.velocity += strafe * accel * 0.5
+            self.is_thrusting = True
+        elif dist < self.keep_distance - 25:
+            # Слишком близко — отходим назад от игрока, сдвигаясь вбок
+            self.velocity += to_player * -accel
+            self.velocity += strafe * accel * 0.6
             self.is_thrusting = True
         else:
-            # Близко — гасим скорость
-            self.is_thrusting = False
+            # На дистанции боя — только крен вправо/влево, сохраняя позицию
+            self.velocity += strafe * accel * 0.7
+            self.is_thrusting = True
+
+        if self.velocity.length() > self.max_speed:
+            self.velocity.scale_to_length(self.max_speed)
 
         # Трение
         self.velocity *= SHIP_FRICTION
@@ -519,4 +545,10 @@ class DestroyerShip(ScoutShip):
                     self.velocity = pygame.math.Vector2(0, 0)
                     self.is_thrusting = False
                     self.apply_impulse_to(ast, self.collision_force)
+                    # Удар об астероид во время манёвра — теряем HP
+                    # (урон зависит от размера астероида)
+                    ast_px = getattr(ast, 'size_px', 32)
+                    impact_damage = max(3, ast_px // 3)
+                    self.take_damage(impact_damage)
+                    print(f"[ENEMY] Истребитель ударился об астероид: -{impact_damage} HP, осталось {self.hp}")
                     break

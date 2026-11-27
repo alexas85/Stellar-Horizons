@@ -25,9 +25,9 @@ class CargoHauler:
         self.velocity = pygame.math.Vector2(0, 0)
         self.angular_velocity = 0.0
 
-        # Физика — медленнее истребителя, но быстрее разведчика
-        self.max_speed = 4.5
-        self.boosted_speed = 6.5          # скорость после обстрела
+        # Физика — в 2 раза медленнее, чтобы игрок мог догнать
+        self.max_speed = 2.25
+        self.boosted_speed = 3.25          # скорость после обстрела
         self.max_angular_velocity = 3.0
         self.turn_acceleration = 0.3
         self.collision_force = 8.0
